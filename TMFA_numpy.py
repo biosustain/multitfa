@@ -81,7 +81,7 @@ def ThermoModel_setupmatrices(cobra_model):
 	
 	# variable order: Vi, Zi, G_r, G_f, G_g, ln(x)
 	mass_balance = np.concatenate(S_core, S_transport, np.zeros(n_met,2*n_met+n_groups+n_core_rxns));
-	indicator = np.concatenate(np.eye(n_core_rxns),np.zeros(n_core_rxns,n_transport_rxn),-vmax*np.eye(n_core_rxns),np.zeros(n_core_rxns),np.zeros(n_core_rxns,n_met),np.zeros(n_core_rxns,n_groups),np.zeros(n_core_rxns,n_met)); 
+	indicator = np.concatenate(np.eye(n_core_rxns),np.zeros(n_core_rxns,n_transport_rxn),-vmax*np.eye(n_core_rxns),np.zeros(n_core_rxns),np.zeros(n_core_rxns,n_met),np.zeros(n_core_rxns,n_groups),np.zeros(n_core_rxns,n_met)); # Change the stoichiometric matirx to to reactions*compounds.training_data, so that we can directly multiply projection matrices in later step
 	G_r_indicator = np.concatenate(np.zeros(n_core_rxns),np.zeros(n_core_rxns,n_transport_rxn),K*np.eye(n_core_rxns),np.eye(n_core_rxns),np.zeros(n_core_rxns,n_met),np.zeros(n_core_rxns,n_groups),np.zeros(n_core_rxns,n_met));
 	G_r_concentration = np.concatenate(np.zeros(n_core_rxns),np.zeros(n_core_rxns,n_transport_rxn),np.zeros(n_core_rxns),np.eye(n_core_rxns),-np.multiply(P_r,S_T),-np.multiply(P_n,STG),-RT*S_T);
 	
@@ -135,15 +135,8 @@ def ThermoModel_setupmatrices(cobra_model):
 			
 
 
-def setup_problem ():
+def solve_problem (Thermo_model):
 	""" Setup MIP problem using the matrices generated  
 	"""
-	
-	obj = Objective(w.dot(x), direction='max');
-	c = np.array([Constraint(row, ub=bound) for row, bound in zip(A.dot(x), bounds)]
-	model = Model(name='Numpy model')
-	model.objective = obj
-	model.add(c)
 
-
-	status = model.optimize()
+	status = Thermo_model.optimize()
