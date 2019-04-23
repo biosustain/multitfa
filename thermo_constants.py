@@ -1,0 +1,9 @@
+R = 8.31e-3 # "kJ / mol / K"
+FARADAY = 96.485 # "kC / mol"
+Vmax = 1000
+K = 1000*Vmax
+default_T = 298.15#, "K")
+default_I = 0.25#, "M")
+default_pH = 7.0
+default_pMg = 10
+RT = R * default_T
