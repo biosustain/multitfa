@@ -1,4 +1,4 @@
-from optlang import Constraint, Objective, Model, Variable
+from optlang import Constraint, Objective, Variable#, Model
 from .reaction import reaction
 import numpy as np
 from util.thermo_constants import Vmax, K, RT
@@ -8,10 +8,11 @@ from .compound import compound
 from numpy import array, dot
 from warnings import warn
 from six import iteritems
-#from cobra import Model
+from cobra import Model
+from .solution import get_solution
 
 
-class tmodel():
+class tmodel(Model):
 
     def __init__(self,model, Kegg_map = {}, Exclude_list = [], pH_I_T_dict ={}, 
                 cholskey_matrix = [],problematic_rxns = [], concentration_dict = {'min':{},'max':{}},
@@ -51,7 +52,7 @@ class tmodel():
         self._objective_dir = objective_dir
         self.Exclude_reactions = list(set(Exclude_list + self.problematic_rxns))
         self._metabolites = [metabolite.id for metabolite in self.metabolites]
-        self.model = Model()
+        #self.model = Model()
         self.debug = debug
 
     def cal_cholskey_matrix(self):
@@ -121,7 +122,6 @@ class tmodel():
                 S_matrix[reaction_index+1,self._metabolites.index(metabolite.id)] = -stoic
             reaction_index=reaction_index + 2
             
-	
         S = np.transpose(S_matrix)
 	
         return rxn_order, S
@@ -137,10 +137,8 @@ class tmodel():
         flux_variables = []
         delG_variables = []
         indicator_vraibales = []
-        debug_var = []
         
         for rxn in self.reactions:
-            #rxn_index = list(self.reactions).index(rxn)
             if rxn.id in self.Exclude_reactions:
                 continue
             rxn_order, S_matrix = self.calculate_S_matrix()
@@ -151,35 +149,32 @@ class tmodel():
             delG_variables.extend([rxn.delG_forward,rxn.delG_reverse])
             indicator_vraibales.extend([rxn.indicator_forward, rxn.indicator_reverse])
 
-            directionality_constraint_f = Constraint(rxn.forward_variable - Vmax * rxn.indicator_forward, ub = 0, name = 'directionality_{}'.format(rxn.forward_variable_name))
-            directionality_constraint_r = Constraint(rxn.reverse_variable - Vmax * rxn.indicator_reverse, ub = 0, name = 'directionality_{}'.format(rxn.reverse_variable_name))
-            
+            directionality_constraint_f = Constraint(rxn.forward_variable - Vmax * rxn.indicator_forward, ub = 0,
+                                             name = 'directionality_{}'.format(rxn.forward_variable_name))
+            directionality_constraint_r = Constraint(rxn.reverse_variable - Vmax * rxn.indicator_reverse, ub = 0,
+                                             name = 'directionality_{}'.format(rxn.reverse_variable_name))
+            delG_indicator_constraint_f = Constraint(rxn.delG_forward -K + K * rxn.indicator_forward, ub = 0,
+                                                     name = 'delG_ind_{}'.format(rxn.forward_variable_name))
+            delG_indicator_constraint_r = Constraint(rxn.delG_reverse -K + K * rxn.indicator_reverse, ub = 0,
+                                                     name = 'delG_ind_{}'.format(rxn.reverse_variable_name))
 
             rhs = rxn_delG + rxn.transport_delG
-            lhs_forward = rxn.delG_forward - RT * S_matrix.T[rxn_ind,:] .dot(conc_variables) - (S_matrix.T[rxn_ind,:] @ self.cholskey_matrix) .dot(z_f_variable)
-             
-                             
-            lhs_reverse = rxn.delG_reverse - RT * S_matrix.T[rxn_ind+1,:] .dot(conc_variables) - (S_matrix.T[rxn_ind+1,:] @ self.cholskey_matrix) .dot(z_f_variable)
+
+            lhs_forward = rxn.delG_forward - RT * S_matrix.T[rxn_ind,:] .dot(conc_variables) \
+                                - (S_matrix.T[rxn_ind,:] @ self.cholskey_matrix) .dot(z_f_variable)                
+            lhs_reverse = rxn.delG_reverse - RT * S_matrix.T[rxn_ind+1,:] .dot(conc_variables)\
+                                 - (S_matrix.T[rxn_ind+1,:] @ self.cholskey_matrix) .dot(z_f_variable)
             
             delG_constraint_f = Constraint(lhs_forward, lb = rhs, ub = rhs, name = 'delG_{}'.format(rxn.forward_variable_name))
             delG_constraint_r = Constraint(lhs_reverse, lb  = -rhs, ub = -rhs, name = 'delG_{}'.format(rxn.reverse_variable_name))
 
-            if self.debug == False:
-                delG_indicator_constraint_f = Constraint(rxn.delG_forward -K + K * rxn.indicator_forward, ub = 0, name = 'delG_ind_{}'.format(rxn.forward_variable_name))
-                delG_indicator_constraint_r = Constraint(rxn.delG_reverse -K + K * rxn.indicator_reverse, ub = 0, name = 'delG_ind_{}'.format(rxn.reverse_variable_name))
-            else:
-                delG_indicator_constraint_f = Constraint(rxn.delG_forward -K + K * rxn.indicator_forward - K * rxn.debug_forward, ub = 0, name = 'delG_ind_{}'.format(rxn.forward_variable_name))
-                delG_indicator_constraint_r = Constraint(rxn.delG_reverse -K + K * rxn.indicator_reverse - K * rxn.debug_reverse, ub = 0, name = 'delG_ind_{}'.format(rxn.reverse_variable_name))
-                debug_var.extend([rxn.debug_forward,rxn.debug_reverse])
-
             constraints_list.extend([directionality_constraint_f, delG_indicator_constraint_f, directionality_constraint_r,\
                                      delG_indicator_constraint_r,delG_constraint_f,delG_constraint_r])
             
-            #model_variables = z_f_variable + flux_variables + delG_variables + indicator_vraibales
-        if self.debug == False:
-            return constraints_list#, model_variables
-        else:
-            return constraints_list, debug_var
+            model_variables = z_f_variable + flux_variables + delG_variables + indicator_vraibales
+        
+        return constraints_list, model_variables
+        
     
     def massbalance_constraint(self):
         mass_balance = []
@@ -189,89 +184,46 @@ class tmodel():
 
     def set_objective(self):
 
-        if len(self.model.variables) == 0:
+        if len(self.solver.variables) == 0:
             self.update()
 
-        objective_variables = [var for var in self.model.variables if self._objective_var == var.name]
+        objective_variables = [var for var in self.solver.variables if self._objective_var == var.name]
         if len(objective_variables) == 0:
             raise ValueError('objective {} supplied not present in the model'.format(self._objective_var))
         elif len(objective_variables) > 1:
             forward_rxn_variable = [i for i in objective_variables if 'reverse' not in i.name][0]
             reverse_rxn_variable = [i for i in objective_variables if 'reverse' in i.name][0]
-            objective_exp = Objective(1* forward_rxn_variable -1 *reverse_rxn_variable) 
+            objective_exp = 1* forward_rxn_variable -1 *reverse_rxn_variable
         elif len(objective_variables) == 1:
-            objective_exp = Objective(1 * objective_variables[0])
+            objective_exp = 1 * objective_variables[0]
         else:
             warn('objective value not set')
         
-        self.model.objective = Objective(objective_exp, direction = self._objective_dir)
+        self.objective = Objective(objective_exp, direction = self._objective_dir)
         
 
     def update(self):
 
         mass_balance = self.massbalance_constraint()
-
-        if self.debug == False:
-            constraints = self._generate_constraints()
-            self.model.add(constraints)
-            self.model.add(mass_balance)
-            #self.set_objective()
-        else:
-            constraints, debug_var = self._generate_constraints()
-            self.model.add(constraints)
-            
-            debug_obj = Objective(sum(1* dbg_var for dbg_var in debug_var),direction = "min")
-            self.model.objective = debug_obj
-            self.model.add(mass_balance)
+        constraints, variables = self._generate_constraints()
+        self.add_cons_vars(constraints)
+        self.add_cons_vars(mass_balance)
+        self.add_cons_vars(variables)
     
-    def ratio_constraints(self,ratio_metabolites,ratio):
-
-        
-
-        
-        
     
-    def variability(self, fraction_of_optim):
+    def concentration_ratio_constraints(self,ratio_metabolites,ratio_lb, ratio_ub):
+        for i in range(len(ratio_metabolites)):
+            ratio_met1 = 'lnc_{}'.format(ratio_metabolites[i][0])
+            var1 = [var for var in self.solver.variables if var.name == ratio_met1][0]
+            ratio_met2 = 'lnc_{}'.format(ratio_metabolites[i][1])
+            var2 = [var for var in self.solver.variables if var.name == ratio_met2][0]
+            ratio_constraint = Constraint(1 * var1 - 1* var2, lb = ratio_lb[i], ub = ratio_ub[i])
+            self.add_cons_vars(ratio_constraint)
 
+    def optimize(self, raise_error = False):
+        solution = get_solution(self, raise_error=raise_error)
+        return solution
         
-        # Check if model is feasible with all the constraints vefore starting TVA
-        feasibility = self.model.optimize()
-
-        if feasibility == 'infeasible':
-            raise ValueError('model infeasible with given constraints')
-
-        if self.model.objective.direction == 'max':
-            fva_old_objective = Variable('fva_old_objective',
-                                         lb = fraction_of_optim * self.model.objective.value)
-        else:
-            fva_old_objective = Variable('fva_old_objective',
-                                         ub = fraction_of_optim * self.model.objective.value)
-        
-        # Add the minimal growth/production constraint
-        fva_old_obj_constraint = Constraint(
-            self.model.objective.expression - fva_old_objective, lb=0, ub=0,
-            name="fva_old_objective_constraint")
-
-        self.model.add(fva_old_obj_constraint)
-        
-
-        ranges = np.zeros((len(self.model.variables),2))  # Initialize flux ranges object
-        for i in range(len(self.model.variables)):
-            self.model.objective = Objective(self.model.variables[i])
-            #minimization
-            self.model.objective.direction = 'min'
-            _ = self.model.optimize()
-            objective_value = self.model.objective.value
-            ranges[i,0] = objective_value
-
-            # maximiztion
-            self.model.objective.direction = 'max'
-            _ = self.model.optimize()
-            objective_value = self.model.objective.value
-            ranges[i,1] = objective_value
-        
-        return ranges
-
     def lp_matrices_matlab(self):
         """[Variable order:
             flux,excluded reactions, binary, delG, concentration, significance]
