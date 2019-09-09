@@ -1,5 +1,7 @@
 from optlang import Variable, Constraint, Objective
-from numpy import zeros
+from numpy import empty
+from pandas import DataFrame, Series, option_context
+
 
 def variability(model, fraction_of_optim, variable_list = None):
         # Please set objective before proceedding to apply the minimal growth/production constraint
@@ -29,27 +31,40 @@ def variability(model, fraction_of_optim, variable_list = None):
 
         model.add_cons_vars([fva_old_obj_constraint,fva_old_objective])
         """
+        fluxes_min = empty(len(variables))
+        fluxes_max = empty(len(variables))  
+        rxn_name = list()  
+        
+        rxn_ids = [rxn.id for rxn in model.reactions]
 
-        ranges = zeros((len(variables),2))  # Initialize flux ranges object
         for i in range(len(variables)):
-            var = [var for var in model.solver.variables if variables[i] in var.name]
-            if len(var) > 1:
-                forward_rxn_variable = [i for i in var if 'reverse' not in i.name][0]
-                reverse_rxn_variable = [i for i in var if 'reverse' in i.name][0]
-                objective_exp = 1* forward_rxn_variable -1 *reverse_rxn_variable
-            print(variables[i])
+            # if the variable is reactions optimize for forward - reverse variables else optimize for the variable
+            var = [var for var in model.solver.variables if variables[i] == var.name][0]
+            if variables[i] in  rxn_ids:
+                rxn_var = model.get_by_id(variables[i])
+                objective_exp = 1* rxn_var.forward_variable - 1 * rxn_var.reverse_variable
+            else:
+                objective_exp = 1* var
+            print(objective_exp)
+            #if len(var) > 1:
+            #    forward_rxn_variable = [i for i in var if 'reverse' not in i.name][0]
+            #    reverse_rxn_variable = [i for i in var if 'reverse' in i.name][0]
+            #    objective_exp = 1* forward_rxn_variable -1 *reverse_rxn_variable
+            rxn_name.append(variables[i])
             model.objective = Objective(objective_exp)
             #minimization
             model.objective.direction = 'min'
             _ = model.slim_optimize()
             objective_value = model.objective.value
-            ranges[i,0] = objective_value
-            print('min:',objective_value)
+            fluxes_min[i] = objective_value
+            #print('min:',objective_value)
 
             # maximiztion
             model.objective.direction = 'max'
             _ = model.slim_optimize()
             objective_value = model.objective.value
-            ranges[i,1] = objective_value
-            print('max:',objective_value)
-        return ranges    
+            fluxes_max[i] = objective_value
+            #print('max:',objective_value)
+        return DataFrame({'minimum' : Series(index=rxn_name, data=fluxes_min),
+                            'maximum': Series(index=rxn_name, data=fluxes_max)})
+

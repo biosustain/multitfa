@@ -225,6 +225,7 @@ class reaction():
                         coeff = self.get_coefficient(transported.id)
 
                     if transported.compartment == reference_comp:
+                       # print(type(coeff), type(transported.charge))
                         charge_transported = abs(coeff) * transported.charge
                         net_charge.append(charge_transported)
                     else:

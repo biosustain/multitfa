@@ -159,11 +159,12 @@ class tmodel(Model):
                                                      name = 'delG_ind_{}'.format(rxn.reverse_variable_name))
 
             rhs = rxn_delG + rxn.transport_delG
+            conc_exp = S_matrix.T[rxn_ind,:] .dot(conc_variables)
+            z_f_exp = (S_matrix.T[rxn_ind,:] @ self.cholskey_matrix) .dot(z_f_variable)
 
-            lhs_forward = rxn.delG_forward - RT * S_matrix.T[rxn_ind,:] .dot(conc_variables) \
-                                - (S_matrix.T[rxn_ind,:] @ self.cholskey_matrix) .dot(z_f_variable)                
-            lhs_reverse = rxn.delG_reverse - RT * S_matrix.T[rxn_ind+1,:] .dot(conc_variables)\
-                                 - (S_matrix.T[rxn_ind+1,:] @ self.cholskey_matrix) .dot(z_f_variable)
+
+            lhs_forward = rxn.delG_forward - RT * conc_exp - z_f_exp                
+            lhs_reverse = rxn.delG_reverse + RT * conc_exp + z_f_exp
             
             delG_constraint_f = Constraint(lhs_forward, lb = rhs, ub = rhs, name = 'delG_{}'.format(rxn.forward_variable_name))
             delG_constraint_r = Constraint(lhs_reverse, lb  = -rhs, ub = -rhs, name = 'delG_{}'.format(rxn.reverse_variable_name))
