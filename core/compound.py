@@ -8,7 +8,7 @@ from optlang import Variable
 
 class compound():
 
-    def __init__(self,comp, id = None, Kegg_map = {}, concentration_min = 1e-5, concentration_max = 1e-2,
+    def __init__(self,comp, id = None, Kegg_map = {}, concentration_min = 1e-5, concentration_max = 2e-2,
      delG_f = 0, pH = None, ionic_strength = None, temperature = None, conc_variable = None, Ci_variable = None):
         super().__init__()
         self.comp = comp

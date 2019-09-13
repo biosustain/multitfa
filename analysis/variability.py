@@ -45,7 +45,7 @@ def variability(model, fraction_of_optim, variable_list = None):
                 objective_exp = 1* rxn_var.forward_variable - 1 * rxn_var.reverse_variable
             else:
                 objective_exp = 1* var
-            print(objective_exp)
+            #print(objective_exp)
             #if len(var) > 1:
             #    forward_rxn_variable = [i for i in var if 'reverse' not in i.name][0]
             #    reverse_rxn_variable = [i for i in var if 'reverse' in i.name][0]

@@ -128,10 +128,10 @@ class tmodel(Model):
  
     def _generate_constraints(self):
         
-        z_f_variable = []; conc_variables = []
+        z_f_variable = []; conc_variables = {}
         for met in self.metabolites:
             z_f_variable.append(met.Ci_variable)
-            conc_variables.append(met.conc_variable)
+            conc_variables[met.id] = met.conc_variable
 
         constraints_list = []
         flux_variables = []
@@ -159,7 +159,8 @@ class tmodel(Model):
                                                      name = 'delG_ind_{}'.format(rxn.reverse_variable_name))
 
             rhs = rxn_delG + rxn.transport_delG
-            conc_exp = S_matrix.T[rxn_ind,:] .dot(conc_variables)
+
+            conc_exp = sum(stoic * conc_variables[metabolite.id] for metabolite, stoic in iteritems(rxn.metabolites) if self.Kegg_map[metabolite.id] not in ['C00080','cpd00067'])
             z_f_exp = (S_matrix.T[rxn_ind,:] @ self.cholskey_matrix) .dot(z_f_variable)
 
 
