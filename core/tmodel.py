@@ -46,6 +46,7 @@ class tmodel(Model):
                             pH_I_T_dict= self.pH_I_T_dict, 
                             del_psi_dict=self.del_psi_dict) for rxn in model.reactions]
 
+        self._covariance_matrix()
         self.cholskey_matrix = self.cal_cholskey_matrix()
         self.problematic_rxns = self.check_problematic_rxns()
         self._objective_var = objective_var
@@ -54,6 +55,12 @@ class tmodel(Model):
         self._metabolites = [metabolite.id for metabolite in self.metabolites]
         #self.model = Model()
         self.debug = debug
+
+    def _covariance_matrix(self):
+        mets = self.metabolites
+        ids = [met.id for met in mets]
+        self._std_dg,self._cov_dg = calculate_dGf(ids, self.Kegg_map)
+        
 
     def cal_cholskey_matrix(self):
         """[summary]
@@ -64,10 +71,8 @@ class tmodel(Model):
         Returns:
             [type] -- [description]
         """
-        mets = self.metabolites
-        ids = [met.id for met in mets]
-        std_dg,cov_dg = calculate_dGf(ids, self.Kegg_map)
-        chol_matrix = cholesky_decomposition(std_dg,cov_dg)
+        
+        chol_matrix = cholesky_decomposition(self._std_dg,self._cov_dg)
                 
         return chol_matrix
     
@@ -161,6 +166,7 @@ class tmodel(Model):
             rhs = rxn_delG + rxn.transport_delG
 
             conc_exp = sum(stoic * conc_variables[metabolite.id] for metabolite, stoic in iteritems(rxn.metabolites) if self.Kegg_map[metabolite.id] not in ['C00080','cpd00067'])
+            #print(rxn.id,conc_exp)
             z_f_exp = (S_matrix.T[rxn_ind,:] @ self.cholskey_matrix) .dot(z_f_variable)
 
 
