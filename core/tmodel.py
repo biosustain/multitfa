@@ -29,7 +29,7 @@ class tmodel(Model):
         """
         super().__init__()
         #self.model = Model(name = 'Thermo_model')
-        self.reactions = model.reactions
+        #self.reactions = model.reactions
         self.Kegg_map = Kegg_map
         self.Exclude_list = Exclude_list 
         self.pH_I_T_dict = pH_I_T_dict

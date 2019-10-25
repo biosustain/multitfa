@@ -3,7 +3,7 @@ from numpy import empty
 from pandas import DataFrame, Series, option_context
 
 
-def variability(model, fraction_of_optim, variable_list = None):
+def variability(model, fraction_of_optim = 0.9 , variable_list = None):
         # Please set objective before proceedding to apply the minimal growth/production constraint
         # Check if model is feasible with all the constraints vefore starting TVA
        
