@@ -86,9 +86,10 @@ def generate_constraints_sample(model):
         constraints_list.extend([directionality_constraint_f, directionality_constraint_r,
                                     delG_indicator_f, delG_indicator_r,
                                     delG_constraint_f, delG_constraint_r])
-        constraints_list.extend(massbalance)
         
-        var_list = flux_variables + delG_variables + indicator_varibales
+        
+    var_list = flux_variables + delG_variables + indicator_varibales
+    constraints_list.extend(massbalance)
 
     return constraints_list, var_list, delG_centroids  
 
@@ -100,8 +101,9 @@ def update_model(model):
     model.add_cons_vars(var_list)
 
 def compare_dataframes(df1, df2):
-
+    
     flags = []
+    
     for i in range(len(df1)):
         range1 = df1['maximum'][i] - df1['minimum'][i]
         range2 = df2['maximum'][i] - df2['minimum'][i]

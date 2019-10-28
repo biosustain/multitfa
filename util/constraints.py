@@ -52,4 +52,10 @@ def stddev_sampling_rhs(reaction, met_sample_dict): # Have to define met_sample_
         rxn_delG_stdev += stoic * (float(met_sample_dict[metabolite.id]))
 
     return rxn_delG_stdev
+
+def add_constraints(model, constraint):
+    for cons in constraint:
+        if (cons in model.constraints) or (cons in model.variables):
+            continue
+        model.add_cons_vars(cons)
     
