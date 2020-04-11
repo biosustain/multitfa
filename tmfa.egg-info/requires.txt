@@ -1,0 +1,5 @@
+cobra>0.13
+optlang
+pytest
+scipy
+numpy
