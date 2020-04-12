@@ -1,8 +1,8 @@
-#tMFA
+# tMFA
 
 This module implements improved version of original thermodynamic meabolic flux analysis (tMFA).Christopher S. Henry, Linda J. Broadbelt, and Vassily Hatzimanikatis. "Thermodynamics-based metabolic flux analysis." Biophysical journal 92.5 (2007): 1792-1805. DOI: https://doi.org/10.1529/biophysj.106.093138
 
-#Installation
+# Installation
 
 Cloning the repository requires Git LFS to download some binary files. Git LFS can be found here (https://git-lfs.github.com/). To install, clone the repository using
 
@@ -21,10 +21,12 @@ To install, simply go to the `tMFA` folder and
 ```
 This module requires CoBRApy and it supports all COBRA compatiable solvers. It is recommended to use a commercial solver such as **GUROBI** or **CPLEX** to solve large MILP problems.
 
-#Example script
+# Example script
+
 To get started please see the script `example-tmfa.py`.
 
-#Licence
+# Licence
+
 The software in this repository is put under an APACHE-2.0 licensing scheme - please see the LICENSE file for more details.
 
 
