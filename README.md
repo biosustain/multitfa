@@ -4,7 +4,7 @@ This module implements improved version of original thermodynamic meabolic flux 
 
 # Installation
 
-Cloning the repository requires Git LFS to download some binary files. Git LFS can be found here (https://git-lfs.github.com/). To install, clone the repository using
+Cloning the repository requires Git LFS to download some binary files. Git LFS can be found [here](https://git-lfs.github.com/). To install, clone the repository using
 
 ```
 git clone https://github.com/vishnumahamkali/tmfa.git
@@ -29,4 +29,34 @@ To get started please see the script `example-tmfa.py`.
 
 The software in this repository is put under an APACHE-2.0 licensing scheme - please see the LICENSE file for more details.
 
+# Thermodynamic variability analysis (TVA) & sampling
 
+As demonstrated in the example script above, users can perform various types of analyses including TVA and sampling. The workflow is described below,
+
+``` math
+(𝜇^−𝜇)T𝛴−1𝜇^−𝜇≤𝜒n,95%2
+```
+Where $ 𝛴 $ is cholesky matrix. The cholesky decomposition of a positive-definite matrix is defined as
+
+``` math
+A = 𝛴 𝛴^-1
+```
+𝛴 is a lower triangular matrix with real and positive diagonal entries. If A is positive semi-definite, then A still has cholesky decomposition of above form if the diagonal elements of cholesky matrix is allowed to be zero. We use algorithm described by [Higham et.al](https://doi.org/10.1016/0024-3795(88)90223-6) to compute the nearest positive semi-definite covariance matrix. 
+
+We allow users to perform thermodynamic sampling in two ways, the box method and sampling on the surface of ellipsoid. In the box sampling method, we treat formation energies as variables that are allowed to vary between mean and two standard deviations as described by [Salvy et.al](https://doi.org/10.1093/bioinformatics/bty499). This type of sampling is not ideal (Please refer to our manuscript for futher details). Thus, we introduce another type of sampling method, sampling on the surface of ellipsoid. We achieve this by first sampling on the surface of the unit n-sphere and transforming it to the surface of the n-ellipsoid. Sampling on the surface of n-sphere is described [here](https://mathworld.wolfram.com/HyperspherePointPicking.html). 
+
+We solve tMFA problem for every sampled formation energy point on surface of ellipsoid. User can choose to sample until no futher improvement is seen in reaction Gibbs free energies after N sample points (user defined cut-off) or we fit the user-defined number of samples to [generalized extreme value distribution](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.genextreme.html) to predict the maximum and minimum reaction Gibbs free energies. 
+
+# Debugging
+
+When the model status is 'infeasible', users can find the constraints that render the model infeasible. Please note this functionality works only when using [GUROBI](https://www.gurobi.com) solver. An example of how to use this functionality is shown below.
+
+```
+while np.isnan(model.slim_optimize()):
+	model.solver.problem.computeIIS()
+	for c in model.solver.problem.getConstrs():
+		if c.IISConstr:
+            print(c)
+```
+
+Please note there can be various combination of constraints that cause problems, users are advised to account for biological meaning when removing a constraint. 
