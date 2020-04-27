@@ -1,9 +1,9 @@
 from .reaction import thermo_reaction
 import numpy as np
-from util.thermo_constants import Vmax, K, RT
-from  util.constraints import directionality, delG_indicator, concentration_exp, metabolite_variables, reaction_variables
+from ..util.thermo_constants import Vmax, K, RT
+from  ..util.constraints import directionality, delG_indicator, concentration_exp, metabolite_variables, reaction_variables
 from copy import deepcopy, copy
-from  util.dGf_calculation import calculate_dGf, cholesky_decomposition
+from  ..util.dGf_calculation import calculate_dGf, cholesky_decomposition
 from .compound import Thermo_met
 from numpy import array, dot
 from warnings import warn
@@ -102,7 +102,7 @@ class tmodel(Model):
         
         """ Metabolites for which we can't calculate the Gibbs free energy of formation using component contribution method
 
-        Metabolites are considered problematic metabolites if whole row in cholesky metrix is zero
+        Metabolites are considered problematic metabolites if whole row in cholesky matrix is zero
         
         Returns:
             List -- List of problematic metabolites
@@ -139,6 +139,17 @@ class tmodel(Model):
             return problems
         else:
             return []
+    
+    def covariance_matrix(self):
+        """calculates the covariance matrix of Gibbs free energy of the metabolites
+        
+        Returns:
+            cov_dg [np.ndarray] -- covariance matrix
+        """
+        
+        std_dg, cov_dg = calculate_dGf(self.metabolites, self.Kegg_map)
+
+        return cov_dg
     
     def update_thermo_variables(self): 
 
@@ -277,7 +288,7 @@ class tmodel(Model):
                 self.solver.remove(cons.name)
                 self.add_cons_vars([cons])
 
-    def concentration_ratio_constraints(self, ratio_metabolites, ratio_lb,                                                                 ratio_ub):
+    def concentration_ratio_constraints(self, ratio_metabolites, ratio_lb, ratio_ub):
         """ Function to add metabolite concentration ratio constraints to the model. E.g. ratio of redox pairs
         
         Arguments:

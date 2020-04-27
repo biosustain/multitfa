@@ -3,9 +3,9 @@ from cobra.core.dictlist import DictList
 from six import iteritems
 from numpy import zeros, dot
 from .compound import Thermo_met
-from  util.thermo_constants import FARADAY
+from  ..util.thermo_constants import FARADAY
 from copy import deepcopy
-from  util.thermo_constants import K, Vmax, RT
+from  ..util.thermo_constants import K, Vmax, RT
 from copy import copy, deepcopy
 from numpy import transpose
 

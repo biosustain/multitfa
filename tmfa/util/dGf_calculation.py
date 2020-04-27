@@ -1,7 +1,7 @@
 import numpy as np
 import os
 from .posdef import nearestPD, isPD
-from  comp_cache import comp_cache
+from  ..comp_cache import comp_cache
 
 data_dir = os.path.normpath(os.path.dirname(os.path.abspath(__file__)) + os.sep + os.pardir + os.sep + 'Data')
 cc_data = np.load(data_dir + os.sep + 'compcont_cache.npz',allow_pickle = True)

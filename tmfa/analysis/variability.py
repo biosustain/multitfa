@@ -1,5 +1,5 @@
 from optlang import Variable, Constraint, Objective
-from numpy import empty
+from numpy import empty, isnan
 from pandas import DataFrame, Series, option_context
 
 
@@ -12,9 +12,8 @@ def variability(model, fraction_of_optim = 0.9 , variable_list = None):
         else:
             variables = [var for var in variable_list]         
        
-        feasibility = model.slim_optimize()
 
-        if feasibility == 'infeasible':
+        if isnan(model.slim_optimize()):
             raise ValueError('model infeasible with given constraints')
 
         """if model.solver.objective.direction == 'max':

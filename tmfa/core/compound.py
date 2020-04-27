@@ -1,8 +1,8 @@
 from cobra import Metabolite
-from  comp_cache import comp_cache
+from  ..comp_cache import comp_cache
 from numpy import logaddexp, log
-from  util.dGf_calculation import calculate_dGf
-from  util.thermo_constants import RT
+from  ..util.dGf_calculation import calculate_dGf
+from  ..util.thermo_constants import RT
 from six import iteritems
 from copy import copy, deepcopy
 

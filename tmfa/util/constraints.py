@@ -1,6 +1,6 @@
 from six import iteritems
 from numpy import log
-from  util.thermo_constants import Vmax, RT, K
+from  .thermo_constants import Vmax, RT, K
 
 
 """ This is a supplementary script to create all thermodynamic varibales and consraints to add to the model.
@@ -101,7 +101,7 @@ def delG_indicator(reaction):
     else:
         return None
 
-def massbalance_constraint(metabolites):
+def massbalance_constraint(model):
     """metabolite mass balance constraints, copying from cobra model
     
     Arguments:
@@ -111,7 +111,7 @@ def massbalance_constraint(metabolites):
         [List] -- List of mass balance consttaints
     """
     mass_balance = []
-    for met in metabolites:
+    for met in model.metabolites:
         mass_balance.append(met.constraint)
     return mass_balance
 
