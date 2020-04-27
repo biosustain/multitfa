@@ -1,3 +1,3 @@
 from .core.tmodel import tmodel
-from .core.reaction import reaction
-from .core.compound import compound
+from .core.reaction import thermo_reaction
+from .core.compound import Thermo_met
