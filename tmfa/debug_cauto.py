@@ -1,8 +1,8 @@
 from cobra import io
-from core import tmodel
+from tmfa.core import tmodel
 import numpy as np
 
-model = io.load_matlab_model('model/cauto_working_model.mat')
+model = io.load_matlab_model('tmfa/model/cauto_working_model.mat')
 w4 = model.reactions.get_by_id('W4')
 w4.subtract_metabolites({model.metabolites.get_by_id("H2O[c]"): -1}) # unbalanced H2O
 
@@ -35,7 +35,7 @@ for index, ele in solution.iterrows():
 	print('{}\t{}\t{}'.format(index, ele['minimum'], ele['maximum']))
 """
 
-with open('model/cauto_charge_info.txt','r') as f:
+with open('tmfa/model/cauto_charge_info.txt','r') as f:
 	for line in f:
 		line = line.strip()
 		line = line.split("\t")
@@ -43,7 +43,7 @@ with open('model/cauto_charge_info.txt','r') as f:
 		met.charge = float(line[1])
 
 Kegg_map = {}
-with open('model/cauto_kegg.map','r') as f:
+with open('tmfa/model/cauto_kegg.map','r') as f:
 	for line in f:
 		line = line.strip()
 		line = line.split("\t")
@@ -51,7 +51,7 @@ with open('model/cauto_kegg.map','r') as f:
 
 
 conc_dict = {'min':{},'max':{}}
-with open('model/cauto_metconc_highbio.txt','r') as f:
+with open('tmfa/model/cauto_metconc_highbio.txt','r') as f:
 	for line in f:
 		line = line.strip()
 		line = line.split("\t")
@@ -81,7 +81,7 @@ while np.isnan(t_model.slim_optimize()):
 			problems_const.append(c)
 			t_model.solver.problem.remove(c)
 
-from analysis import variability
+from tmfa.analysis import variability
 
 rxn_ids = [i.id for i in t_model.reactions]
 delgs = [var.name for var in t_model.solver.variables if 'dG_' in var.name]
@@ -89,7 +89,7 @@ conc_vars = [var.name for var in t_model.solver.variables if 'lnc_' in var.name]
 
 vars_analysis = rxn_ids + delgs + conc_vars
 
-ranges_vars = variability.variability(t_model,fraction_of_optim = 0.9,variable_list = vars_analysis)
+ranges_vars = variability(t_model,fraction_of_optim = 0.9,variable_list = vars_analysis)
 
 for index, ele in ranges_vars.iterrows():
 	print('{}\t{}\t{}'.format(index, ele['minimum'], ele['maximum']))
