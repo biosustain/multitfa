@@ -1,0 +1,6 @@
+{
+    "python.linting.pylintEnabled": true,
+    "python.linting.enabled": true,
+    "python.pythonPath": "/home/vishnu/.virtualenvs/tmfa_vish/bin/python",
+    "editor.wordWrap": "on"
+}
