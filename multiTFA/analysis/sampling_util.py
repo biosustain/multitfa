@@ -5,18 +5,6 @@ from optlang import Constraint
 from ..util.thermo_constants import RT
 from random import uniform
 
-def generate_box_sample(model):
-    
-    met_stdev_dict = []
-
-    covariance = model.covariance_matrix()
-    stdev = sqrt(diag(covariance))
-    for met in model.metabolites:
-        ind = model.metabolites.index(met)
-        rand_sample = uniform(-1.96*stdev[ind], 1.96*stdev[ind])
-        met_stdev_dict.append(rand_sample)
-        
-    return met_stdev_dict
 
 def generate_n_sphere_sample(n_variables):
    
@@ -45,7 +33,7 @@ def generate_ellipsoid_sample(cholesky):
     chi_crit_val = chi2.isf(q = 0.05, df = n_dimensions)
     n_sphere_sample = generate_n_sphere_sample(n_dimensions)
 
-    ellipsoid_sample = chi_crit_val * cholesky @ n_sphere_sample
+    ellipsoid_sample = sqrt(chi_crit_val) * cholesky @ n_sphere_sample
 
     return ellipsoid_sample
 
