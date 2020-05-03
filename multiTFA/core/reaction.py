@@ -67,6 +67,7 @@ class thermo_reaction(Reaction):
         self.transport_delG = self.delG_transport()
         self.delG_transform = self.calculate_rxn_delG() + self.transport_delG
         self.S_matrix = self.cal_stoichiometric_matrix()
+        self.transform = self.transform_adjustment()
     
 
     @property
@@ -153,6 +154,17 @@ class thermo_reaction(Reaction):
             rxn_delG += stoic * (float(metabolite.delG_f) + transform)
         
         return rxn_delG
+
+    def transform_adjustment(self):
+        
+        transform_adjust = 0
+        for metabolite, stoic in iteritems(self.metabolites):
+            pH = self.pH_I_T_dict['pH'][metabolite.compartment]
+            ionic_strength = self.pH_I_T_dict['I'][metabolite.compartment]
+            temperature = self.pH_I_T_dict['T'][metabolite.compartment]
+            transform = metabolite.transform(pH,ionic_strength,temperature)
+            transform_adjust += stoic * transform
+        return transform_adjust
     
     def find_transportMets(self):
         

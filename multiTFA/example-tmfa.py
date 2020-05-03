@@ -1,5 +1,5 @@
 from cobra import io
-from core import tmodel
+from multiTFA.core import tmodel
 import numpy as np
 
 model = io.load_matlab_model('model/small_ecoli.mat')
@@ -19,7 +19,7 @@ conc_dict = {'min':{'atp_c':1e-3,'adp_c':4e-4,'amp_c':2e-4},'max':{'atp_c':1e-2,
 
 
 
-t_model = tmodel.tmodel(model = model, Kegg_map = Kegg_map, pH_I_T_dict = pH_I_T_dict, del_psi_dict = del_psi_dict, Exclude_list = Excl)
+t_model = tmodel(model = model, Kegg_map = Kegg_map, pH_I_T_dict = pH_I_T_dict, del_psi_dict = del_psi_dict, Exclude_list = Excl, concentration_dict= conc_dict)
 t_model.update()
 
 problems_const = []

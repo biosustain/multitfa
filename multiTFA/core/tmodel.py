@@ -1,11 +1,11 @@
 from .reaction import thermo_reaction
 import numpy as np
 from ..util.thermo_constants import Vmax, K, RT
-from  ..util.constraints import directionality, delG_indicator, concentration_exp, metabolite_variables, reaction_variables
+from  ..util.constraints import directionality, delG_indicator, concentration_exp, metabolite_variables, reaction_variables, met_exp_qp
 from copy import deepcopy, copy
 from  ..util.dGf_calculation import calculate_dGf, cholesky_decomposition
 from .compound import Thermo_met
-from numpy import array, dot
+from numpy import array, dot, sqrt, diag
 from warnings import warn
 from six import iteritems
 from cobra import Model
@@ -79,9 +79,11 @@ class tmodel(Model):
         self.pH_I_T_dict = pH_I_T_dict
         self.concentration_dict = concentration_dict
         self.del_psi_dict = del_psi_dict
+        self.covariance_matrix()
         self.solver.configuration.tolerances.integrality = tolerance_integral
         self.Exclude_reactions = list(set(Exclude_list + self.problematic_rxns))
         self.update_thermo_variables()
+        
 
     
     @property
@@ -114,7 +116,8 @@ class tmodel(Model):
             met_index = self.metabolites.index(met)
             if met.Kegg_id in ['C00080','cpd00067']:
                 continue
-            if np.count_nonzero(self.cholskey_matrix[:,met_index]) == 0:
+            if np.count_nonzero(self.cholskey_matrix[:,met_index]) == 0:# or \
+            #         sqrt(diag(self.cov_dG)[self.metabolites.index(met)]) > 100:
                 problematic_metabolites.append(met)
         
         return problematic_metabolites
@@ -144,12 +147,12 @@ class tmodel(Model):
         """calculates the covariance matrix of Gibbs free energy of the metabolites
         
         Returns:
+            std_dg [np.ndarray] -- std delg of all metabolites
             cov_dg [np.ndarray] -- covariance matrix
         """
         
-        std_dg, cov_dg = calculate_dGf(self.metabolites, self.Kegg_map)
-
-        return cov_dg
+        self.std_dG, self.cov_dG = calculate_dGf(self.metabolites, self.Kegg_map)
+        
     
     def update_thermo_variables(self): 
 
@@ -163,15 +166,17 @@ class tmodel(Model):
         Reaction flux indicator variable
         """
         
-        #metabolite concentration and Ci variables
+        #metabolite concentration, Ci and metabolite variables
         conc_variables = []
         z_f_variables = []
+        met_variables = []
 
         for metabolite in self.metabolites:
-            conc_var, ci_var = metabolite_variables(metabolite)
+            conc_var, ci_var, met_variable = metabolite_variables(metabolite)
             conc_variables.append(conc_var)
             z_f_variables.append(ci_var)
-        self.add_cons_vars(conc_variables + z_f_variables)
+            met_variables.append(met_variable)
+        self.add_cons_vars(conc_variables + z_f_variables + met_variables)
 
         # Now add reaction variables and generate remaining constraints
         for rxn in self.reactions:
@@ -216,6 +221,40 @@ class tmodel(Model):
 
         return rxn_order, S
 
+    def _base_constraints(self):
+        """ Idea is to generate base set of constraints and depending on whether we use box method or quadratic constraint method, we can add the rest of the terms accordingly. For delG constraint, I am keeping the rhs = delG_transform for now, but needs to be adjusted according to method
+
+        Vi - Vmax * Zi <= 0
+        delGr - K + K * Zi <= 0
+        delGr - RT * S.T * ln(x) =  S.T @ cholesky @ Zf - S.T @ delGf - delGtransport = 0
+
+        """
+        rxn_constraints = []
+        for rxn in self.reactions:
+            if rxn.id in self.Exclude_reactions:
+                continue
+            
+            #Directionality constraint
+            dir_f, dir_r = directionality(rxn)
+            ind_f, ind_r = delG_indicator(rxn)
+
+            # delG constraint, Here in this case we are only adding the base terms, CI or met variables will be added later on depending on the box or MIQCP method.
+
+            concentration_term = concentration_exp(rxn)
+            lhs_forward = rxn.delG_forward - RT * concentration_term
+            lhs_reverse = rxn.delG_reverse + RT * concentration_term
+            rhs = rxn.delG_transform
+
+            delG_f = self.problem.Constraint(lhs_forward, lb = rhs, ub = rhs,
+                             name = 'delG_{}'.format(rxn.forward_variable.name))
+
+            delG_r = self.problem.Constraint(lhs_reverse, lb = -rhs, ub = -rhs,
+                             name = 'delG_{}'.format(rxn.reverse_variable.name))                 
+            rxn_constraints.extend([dir_f, dir_r, ind_f, ind_r, delG_f, delG_r])
+
+
+        pass
+
  
     def _generate_constraints(self): 
         
@@ -258,10 +297,13 @@ class tmodel(Model):
             concentration_term = concentration_exp(rxn)
 
             ci_term = (S.T[rxn_index,:] @ self.cholskey_matrix) .dot(z_f_variables)
+            met_term = met_exp_qp(rxn)
             #ci_term = Ci_exp(rxn, z_f_variables)
 
-            lhs_forward = rxn.delG_forward - RT * concentration_term - ci_term
-            lhs_reverse = rxn.delG_reverse + RT * concentration_term + ci_term
+            # temporarily removing ci expression and adding met_exp_qp for adding qcp. later we can check which is default and adjust accordingly
+
+            lhs_forward = rxn.delG_forward - RT * concentration_term - met_term#- ci_term
+            lhs_reverse = rxn.delG_reverse + RT * concentration_term + met_term# ci_term
             rhs = rxn.delG_transform
 
             delG_f = self.problem.Constraint(lhs_forward, lb = rhs, ub = rhs,

@@ -1,6 +1,6 @@
 from cobra import Metabolite
 from  ..comp_cache import comp_cache
-from numpy import logaddexp, log
+from numpy import logaddexp, log, diag, sqrt
 from  ..util.dGf_calculation import calculate_dGf
 from  ..util.thermo_constants import RT
 from six import iteritems
@@ -32,6 +32,8 @@ class Thermo_met(Metabolite):
         self.Kegg_id = Kegg_map[self.id]
         self.Kegg_map = Kegg_map
         self.delG_f = self.calculate_delG_f()
+        #self.std_dev = sqrt(diag(self.model.cov_dG)[
+        #                        self.model.metabolites.index(self)])
 
         if self.id in concentration_dict['min'].keys():
             self.concentration_min = concentration_dict['min'][self.id]
@@ -56,6 +58,14 @@ class Thermo_met(Metabolite):
     def ci_variable(self):
         if self.model is not None:
             conc_var = 'Ci_{}'.format(self.id)
+            return self.model.variables[conc_var]
+        else:
+            return None
+
+    @property
+    def compound_variable(self):
+        if self.model is not None:
+            conc_var = 'met_{}'.format(self.id)
             return self.model.variables[conc_var]
         else:
             return None

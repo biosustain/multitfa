@@ -1,6 +1,8 @@
 from six import iteritems
-from numpy import log
+from numpy import log, isnan, where, delete, array, linalg, sqrt, diag
 from  .thermo_constants import Vmax, RT, K
+from scipy.stats import chi2
+from .posdef import nearestPD, isPD
 
 
 """ This is a supplementary script to create all thermodynamic varibales and consraints to add to the model.
@@ -17,7 +19,8 @@ def reaction_variables(reaction):
     """
     if reaction.model is not None:
         delG_forward = reaction.model.problem.Variable(
-                        'dG_{}'.format(reaction.forward_variable.name),
+                                    'dG_{}'.format(
+                                    reaction.forward_variable.name),
                                     lb = -1000, ub = 1000)
         delG_reverse = reaction.model.problem.Variable(
                         'dG_{}'.format(reaction.reverse_variable.name),
@@ -50,7 +53,11 @@ def metabolite_variables(metabolite):
         Ci_variable = metabolite.model.problem.Variable(
                             'Ci_{}'.format(metabolite.id),
                             lb = -1.96, ub = 1.96)
-        return conc_variable, Ci_variable
+        
+        met_variable = metabolite.model.problem.Variable(
+                            'met_{}'.format(metabolite.id),
+                            lb = -1000, ub = 1000)
+        return conc_variable, Ci_variable, met_variable
     else:
         return None
 
@@ -147,6 +154,12 @@ def Ci_exp(reaction, z_f_variable):
 
     return z_f_exp
 
+def met_exp_qp(reaction):
+    
+    return sum(stoic * metabolite.compound_variable 
+                    for metabolite, stoic in iteritems(reaction.metabolites) 
+                        if metabolite.Kegg_id not in ['C00080','cpd00067'])
+
 
 def stddev_sampling_rhs(reaction, met_sample_dict): # Have to define met_sample_dict, {metid:sampled_value}
     """ Used for sampling. to calculate the rxn standard deviation from the sampled fromation energies
@@ -176,3 +189,69 @@ def add_constraints(model, constraint):
             continue
         model.add_cons_vars(cons)
     
+
+def MIQP(model):
+    
+    met_ids = [met.id for met in model.metabolites]
+    
+
+    gurobi_interface = model.solver.problem.copy()
+    metid_grbvars_dict = {}
+    for var in gurobi_interface.getVars():
+        if var.VarName[4:] in met_ids:
+            metid_grbvars_dict[var.VarName[4:]] = var
+    #print(metid_grbvars_dict)
+
+
+    #std_dg, cov_dg = model.covariance_matrix()
+
+    problem_indices = []
+    problem_mets = []
+    for met in model.metabolites:
+        if met.delG_f == 0 or list(set(isnan(model.std_dG)))[0] or sqrt(diag(model.cov_dG)[model.metabolites.index(met)]) > 100:
+            problem_indices.append(model.metabolites.index(met))
+            problem_mets.append(met)
+
+    #problem_indices = sorted(list(where(isnan(std_dg))[0]) + list(where(std_dg == 0)[0]))
+    #problem_indices = [model.metabolites.index(met) for met in model.problem_metabolites]
+    #problem_mets = [model.metabolites[ind] for ind in problem_indices]
+    cov_dg = model.cov_dG
+    cov_dg = delete(cov_dg, problem_indices, axis=0)
+    cov_dg = delete(cov_dg, problem_indices, axis=1)
+
+    if not isPD(cov_dg):
+        nearPD = nearestPD(cov_dg)
+        inv_cov = linalg.inv(nearPD)
+    else:
+        inv_cov = linalg.inv(cov_dg)
+
+    chi_crit_val = chi2.isf(q = 0.05, df = len(cov_dg))
+    
+    delG_mean = []
+    met_var = []
+    for met in model.metabolites:
+        if met in problem_mets:
+            continue
+        delG_mean.append(met.delG_f)
+        met_var.append(metid_grbvars_dict[met.id])
+
+    delG_mean = array(delG_mean)
+    met_var = array(met_var)
+
+
+    mu_var = array([met_var])
+
+    
+
+    lhs = mu_var @ inv_cov @ mu_var.T    
+    cons = lhs[0]
+    gurobi_interface.addConstr(cons[0] <= chi_crit_val, "qp_constraint")
+    gurobi_interface.update()
+    gurobi_interface.write('test.lp')
+
+    #gurobi_interface.optimize()
+
+    #for v in gurobi_interface.getVars():
+    #    print('%s %g' % (v.varName, v.x))
+
+    return gurobi_interface

@@ -4,6 +4,7 @@ from .variability import variability
 from pandas import DataFrame, Series, concat
 from numpy import zeros, isnan, empty,nan
 from warnings import warn
+
 def cutoff_sampling(model, cutoff = 100, sample_type = 0):
     """[summary]
     
@@ -98,20 +99,8 @@ def gev_sampling(model, cutoff = 1000, sample_type = 0):
     """
 
     met_ids = [i.id for i in model.metabolites]
-    #model.update()
 
-    #prepare_sampling_model(model)
-    #print(model.slim_optimize())
-
-    constraints_list = generate_constraints_sample(model)
-
-    for cons in constraints_list:
-        if cons.name not in model.constraints:
-            model.add_cons_vars([cons])
-        else:
-            warn('Constraint name {} already exists in the model'.format(cons.name))
-            model.solver.remove(cons.name)
-            model.add_cons_vars([cons])
+    prepare_sampling_model(model)
 
 
     print("Thermodynamic constraints prepared")
