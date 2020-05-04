@@ -1,5 +1,5 @@
 from six import iteritems
-from numpy import log, isnan, where, delete, array, linalg, sqrt, diag
+from numpy import log, isnan, where, delete, array, linalg, sqrt, diag, shape
 from  .thermo_constants import Vmax, RT, K
 from scipy.stats import chi2
 from .posdef import nearestPD, isPD
@@ -56,7 +56,7 @@ def metabolite_variables(metabolite):
         
         met_variable = metabolite.model.problem.Variable(
                             'met_{}'.format(metabolite.id),
-                            lb = -1000, ub = 1000)
+                            lb = -100000, ub = 100000)
         return conc_variable, Ci_variable, met_variable
     else:
         return None
@@ -193,65 +193,95 @@ def add_constraints(model, constraint):
 def MIQP(model):
     
     met_ids = [met.id for met in model.metabolites]
-    
-
     gurobi_interface = model.solver.problem.copy()
+    
+    # Get metabolite variable from gurobi interface
     metid_grbvars_dict = {}
     for var in gurobi_interface.getVars():
         if var.VarName[4:] in met_ids:
             metid_grbvars_dict[var.VarName[4:]] = var
-    #print(metid_grbvars_dict)
 
-
-    #std_dg, cov_dg = model.covariance_matrix()
-
+    
+    # Problem metabolites, if met.delGf == 0 then delete it, if S.D > 100 make a sepearate covariance matrix
     problem_indices = []
     problem_mets = []
+    delete_ind = []
+    delete_met = []
     for met in model.metabolites:
-        if met.delG_f == 0 or list(set(isnan(model.std_dG)))[0] or sqrt(diag(model.cov_dG)[model.metabolites.index(met)]) > 100:
+        if met.delG_f == 0 or isnan(met.delG_f):
+            delete_ind.append(model.metabolites.index(met))
+            delete_met.append(met)
+        elif sqrt(diag(model.cov_dG)[model.metabolites.index(met)]) > 100:
+            delete_ind.append(model.metabolites.index(met))
             problem_indices.append(model.metabolites.index(met))
             problem_mets.append(met)
+            delete_met.append(met)
+        else:
+            continue
 
-    #problem_indices = sorted(list(where(isnan(std_dg))[0]) + list(where(std_dg == 0)[0]))
-    #problem_indices = [model.metabolites.index(met) for met in model.problem_metabolites]
-    #problem_mets = [model.metabolites[ind] for ind in problem_indices]
+
+    # First construct high variance matrix then proceed to the normal one
     cov_dg = model.cov_dG
-    cov_dg = delete(cov_dg, problem_indices, axis=0)
-    cov_dg = delete(cov_dg, problem_indices, axis=1)
 
+    # First pick high variance columns from cov_dG and delete the rows corresponding to non problem metabolites
+    whole_ind = [ind for ind in range(len(cov_dg))]
+    non_problem = list(set(whole_ind).difference(set(problem_indices)))
+    large_covar = cov_dg[:,problem_indices]
+    large_covar = delete(large_covar, non_problem, axis = 0)
+
+    # Now construct the normal covariance matrix
+    cov_dg = delete(cov_dg, delete_ind, axis=0)
+    cov_dg = delete(cov_dg, delete_ind, axis=1)
+
+    # Now check if both normal and high covar matrices are posdef and calculate inverse
     if not isPD(cov_dg):
         nearPD = nearestPD(cov_dg)
         inv_cov = linalg.inv(nearPD)
     else:
         inv_cov = linalg.inv(cov_dg)
 
-    chi_crit_val = chi2.isf(q = 0.05, df = len(cov_dg))
+    if not isPD(large_covar):
+        nearPD_lc = nearestPD(large_covar)
+        inv_cov_lc = linalg.inv(nearPD_lc)
+    else:
+        inv_cov_lc = linalg.inv(large_covar)    
+
     
-    delG_mean = []
+    # Separate chi-square values for both covariances
+    chi_crit_val = chi2.isf(q = 0.05, df = len(cov_dg))
+    chi_crit_val_lc = chi2.isf(q = 0.05, df = len(large_covar))
+
+    #Construct the qc variable matrices for both cases 
+    
+    # For normal covariance
     met_var = []
     for met in model.metabolites:
-        if met in problem_mets:
+        if met in delete_met:
             continue
-        delG_mean.append(met.delG_f)
         met_var.append(metid_grbvars_dict[met.id])
-
-    delG_mean = array(delG_mean)
     met_var = array(met_var)
-
-
     mu_var = array([met_var])
-
-    
-
+    print(mu_var)
+    print(inv_cov)
+    print(shape(inv_cov))
     lhs = mu_var @ inv_cov @ mu_var.T    
     cons = lhs[0]
-    gurobi_interface.addConstr(cons[0] <= chi_crit_val, "qp_constraint")
+    gurobi_interface.addQConstr(cons[0] <= chi_crit_val, "qp_constraint")
     gurobi_interface.update()
+
+    # For high variance 
+    met_var_lc = []
+    for met in problem_mets:
+        met_var_lc.append(metid_grbvars_dict[met.id])
+    met_var_lc = array(met_var_lc)
+    mu_var_lc = array([met_var_lc])
+
+    lhs_lc = mu_var_lc @ inv_cov_lc @ mu_var_lc.T    
+    cons_lc = lhs_lc[0]
+    #gurobi_interface.addQConstr(cons_lc[0] <= chi_crit_val_lc,                                              "qp_constraint_lc")
+    #gurobi_interface.update()
+    print('done')
+
     gurobi_interface.write('test.lp')
-
-    #gurobi_interface.optimize()
-
-    #for v in gurobi_interface.getVars():
-    #    print('%s %g' % (v.varName, v.x))
 
     return gurobi_interface

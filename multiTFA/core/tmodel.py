@@ -5,7 +5,7 @@ from  ..util.constraints import directionality, delG_indicator, concentration_ex
 from copy import deepcopy, copy
 from  ..util.dGf_calculation import calculate_dGf, cholesky_decomposition
 from .compound import Thermo_met
-from numpy import array, dot, sqrt, diag
+from numpy import array, dot, sqrt, diag, isnan
 from warnings import warn
 from six import iteritems
 from cobra import Model
@@ -116,8 +116,7 @@ class tmodel(Model):
             met_index = self.metabolites.index(met)
             if met.Kegg_id in ['C00080','cpd00067']:
                 continue
-            if np.count_nonzero(self.cholskey_matrix[:,met_index]) == 0:# or \
-            #         sqrt(diag(self.cov_dG)[self.metabolites.index(met)]) > 100:
+            if np.count_nonzero(self.cholskey_matrix[:,met_index]) == 0 or isnan(met.delG_f) or sqrt(diag(self.cov_dG)[self.metabolites.index(met)]) > 100:
                 problematic_metabolites.append(met)
         
         return problematic_metabolites
