@@ -192,13 +192,12 @@ def add_constraints(model, constraint):
 
 def MIQP(model):
     
-    met_ids = [met.id for met in model.metabolites]
     gurobi_interface = model.solver.problem.copy()
     
     # Get metabolite variable from gurobi interface
     metid_grbvars_dict = {}
     for var in gurobi_interface.getVars():
-        if var.VarName[4:] in met_ids:
+        if var.VarName.startswith('met_'):
             metid_grbvars_dict[var.VarName[4:]] = var
 
     
@@ -211,7 +210,7 @@ def MIQP(model):
         if met.delG_f == 0 or isnan(met.delG_f):
             delete_ind.append(model.metabolites.index(met))
             delete_met.append(met)
-        elif sqrt(diag(model.cov_dG)[model.metabolites.index(met)]) > 100:
+        elif sqrt(diag(model.cov_dG)[model.metabolites.index(met)]) > 25:
             delete_ind.append(model.metabolites.index(met))
             problem_indices.append(model.metabolites.index(met))
             problem_mets.append(met)
@@ -219,7 +218,7 @@ def MIQP(model):
         else:
             continue
 
-
+    print(delete_met)
     # First construct high variance matrix then proceed to the normal one
     cov_dg = model.cov_dG
 
@@ -255,14 +254,17 @@ def MIQP(model):
     
     # For normal covariance
     met_var = []
+    delG_mean = []
     for met in model.metabolites:
         if met in delete_met:
             continue
         met_var.append(metid_grbvars_dict[met.id])
+        delG_mean.append(met.delG_f)
     met_var = array(met_var)
-    mu_var = array([met_var])
-    print(mu_var)
-    print(inv_cov)
+    delG_mean = array(delG_mean)
+    mu_var = met_var - delG_mean
+    mu_var = array([mu_var])
+
     print(shape(inv_cov))
     lhs = mu_var @ inv_cov @ mu_var.T    
     cons = lhs[0]

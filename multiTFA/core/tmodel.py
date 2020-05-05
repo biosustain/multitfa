@@ -116,7 +116,7 @@ class tmodel(Model):
             met_index = self.metabolites.index(met)
             if met.Kegg_id in ['C00080','cpd00067']:
                 continue
-            if np.count_nonzero(self.cholskey_matrix[:,met_index]) == 0 or isnan(met.delG_f) or sqrt(diag(self.cov_dG)[self.metabolites.index(met)]) > 100:
+            if np.count_nonzero(self.cholskey_matrix[:,met_index]) == 0 or isnan(met.delG_f):# or sqrt(diag(self.cov_dG)[self.metabolites.index(met)]) > 100:
                 problematic_metabolites.append(met)
         
         return problematic_metabolites
@@ -303,7 +303,7 @@ class tmodel(Model):
 
             lhs_forward = rxn.delG_forward - RT * concentration_term - met_term#- ci_term
             lhs_reverse = rxn.delG_reverse + RT * concentration_term + met_term# ci_term
-            rhs = rxn.delG_transform
+            rhs = rxn.transform + rxn.transport_delG
 
             delG_f = self.problem.Constraint(lhs_forward, lb = rhs, ub = rhs,
                              name = 'delG_{}'.format(rxn.forward_variable.name))
