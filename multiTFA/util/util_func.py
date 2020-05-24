@@ -82,5 +82,21 @@ def findcorrelatedmets(model):
     ind_high_variances = list(np.where(np.sqrt(np.diag(final_cov)) > 10 )[0]) 
     high_var_mets = [final_mets[i] for i in ind_high_variances]
 
-    return final_correlation, final_mets, high_var_mets, ind_high_variances
+    # Find indices that are highly correlated (corr > 0.7 | corr < -0.7) and check if they are same as high variance metabolites
+    new_ellipsoid_ind = []
+    old_ellipsoid_ind = []
+    test_high_var = final_correlation[:,ind_high_variances] # just to test only col of high var inds
+    for i in range(np.size(test_high_var, axis = 1)):
+        pos_corr = list(set(np.where(test_high_var[:,i] > 0.7)[0]))
+        neg_corr = list(set(np.where(test_high_var[:,i] < -0.7)[0]))
+        correlated_ind = pos_corr + neg_corr
+        if len(correlated_ind) == 0:
+            pass
+        if set(correlated_ind).issubset(set(ind_high_variances)):
+            new_ellipsoid_ind.append(test_high_var[i])
+        elif not set(correlated_ind).intersection(set(ind_high_variances)) == set(correlated_ind):
+            old_ellipsoid_ind.append(test_high_var[i])
+
+
+    return final_correlation, final_mets, high_var_mets, ind_high_variances, final_cov
     
