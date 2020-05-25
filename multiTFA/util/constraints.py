@@ -194,7 +194,29 @@ def add_constraints(model, constraint):
         if (cons in model.constraints) or (cons in model.variables):
             continue
         model.add_cons_vars(cons)
+
+
+def quad_constraint(covar, mets, met_var_dict):
+
+    # Check if is pos-def
+    if not isPD(covar):
+        nearPD = nearestPD(covar)
+    else:
+        nearPD = covar
     
+    inv_cov = linalg.inv(nearPD)
+    chi_crit_val = chi2.isf(q = 0.05, df = len(covar))
+
+    met_var = [met_var_dict[met] for met in mets]
+    centroids = [met.delG_f for met in mets]
+
+    var_mu = array(met_var) - array(centroids)
+    var_mu = array([var_mu])
+
+    pre_lhs = var_mu @ inv_cov @ var_mu.T
+    lhs = pre_lhs[0]
+    
+    return lhs[0], chi_crit_val
 
 def MIQP(model):
     
@@ -207,36 +229,21 @@ def MIQP(model):
             metid_grbvars_dict[var.VarName[4:]] = var
 
     
-    # Problem metabolites, if met.delGf == 0 then delete it, if S.D > 100 make a sepearate covariance matrix
-    delete_ind = []
+    # Problem metabolites, if met.delGf == 0 or cholesky row is zeros then delete them
     delete_met = []
     cov_mets = []
     cov_met_ids = []
     for met in model.metabolites:
-        if count_nonzero(model.cholskey_matrix[:,model.metabolites.index(met)]) == 0 \
-                         or isnan(met.delG_f):
-            delete_ind.append(model.metabolites.index(met))
+        if count_nonzero(model.cholskey_matrix[:,model.metabolites.index(met)]
+                        ) == 0 or isnan(met.delG_f):
             delete_met.append(met)
-        #elif sqrt(diag(model.cov_dG)[model.metabolites.index(met)]) > 10:
-        #    delete_ind.append(model.metabolites.index(met))
-        #    problem_indices.append(model.metabolites.index(met))
-        #    problem_mets.append(met)
-        #    delete_met.append(met)
         else:
             cov_met_ids.append(model.metabolites.index(met))
             cov_mets.append(met.id)
 
-    #print(delete_met)
-    # First construct high variance matrix then proceed to the normal one
+
     cov_dg = model.cov_dG
-
-    # First pick high variance columns from cov_dG and delete the rows corresponding to non problem metabolites
-    #whole_ind = [ind for ind in range(len(cov_dg))]
-    #non_problem = list(set(whole_ind).difference(set(problem_indices)))
-    #large_covar = cov_dg[:,problem_indices]
-    #large_covar = delete(large_covar, non_problem, axis = 0)
-
-    # Now construct the normal covariance matrix
+    # Pick indices of non zero non nan metabolites
     cov_dG = cov_dg[:,cov_met_ids]
     cov_dg = cov_dG[cov_met_ids, :]
 
@@ -248,12 +255,6 @@ def MIQP(model):
         nearPD = cov_dg
         inv_cov = linalg.inv(nearPD)
 
-    """if not isPD(large_covar):
-        nearPD_lc = nearestPD(large_covar)
-        inv_cov_lc = linalg.inv(nearPD_lc)
-    else:
-        inv_cov_lc = linalg.inv(large_covar)  
-    """
     # Separate chi-square values for both covariances
     chi_crit_val = chi2.isf(q = 0.05, df = len(cov_dg))
     #chi_crit_val_lc = chi2.isf(q = 0.05, df = len(large_covar))  
@@ -269,9 +270,9 @@ def MIQP(model):
         if met in delete_met:
             continue
         metid_grbvars_dict[met.id].LB = met.delG_f \
-                                - bounds[cov_mets.index(met.id)]
+                                - 1.5*bounds[cov_mets.index(met.id)]
         metid_grbvars_dict[met.id].UB = met.delG_f \
-                                + bounds[cov_mets.index(met.id)]
+                                + 1.5*bounds[cov_mets.index(met.id)]
         met_var.append(metid_grbvars_dict[met.id])
         delG_mean.append(met.delG_f)
     met_var = array(met_var)
@@ -285,19 +286,7 @@ def MIQP(model):
     gurobi_interface.addQConstr(cons[0] <= chi_crit_val, "qp_constraint")
     gurobi_interface.update()
 
-    """
-    # For high variance 
-    met_var_lc = []
-    for met in problem_mets:
-        met_var_lc.append(metid_grbvars_dict[met.id])
-    met_var_lc = array(met_var_lc)
-    mu_var_lc = array([met_var_lc])
 
-    lhs_lc = mu_var_lc @ inv_cov_lc @ mu_var_lc.T    
-    cons_lc = lhs_lc[0]
-    #gurobi_interface.addQConstr(cons_lc[0] <= chi_crit_val_lc,                                              "qp_constraint_lc")
-    #gurobi_interface.update()
-    """
     print('done')
 
     gurobi_interface.write('test.lp')
@@ -335,3 +324,4 @@ def bounds_ellipsoid(covariance):
         UB.append(max(bounds_mat[i,:]))
 
     return UB
+

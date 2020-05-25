@@ -1,19 +1,3 @@
-from functools import wraps 
-""" Adopted from https://medium.com/@mgarod/dynamically-add-a-method-to-a-class-in-python-c49204b85bd6
-
-Defining a decorator that accepts the method for a class
-
-"""
-def add_method(cls):
-    def decorator(func):
-        @wraps(func) 
-        def wrapper(self, *args, **kwargs): 
-            return func(*args, **kwargs)
-        setattr(cls, func.__name__, wrapper)
-        # Note we are not binding func, but wrapper which accepts self but does exactly the same as func
-        return func # returning func means func can still be used normally
-    return decorator
-
 import numpy as np
 from .posdef import isPD, nearestPD
 
@@ -36,9 +20,17 @@ def cov2corr(covariance):
     return correlation
 
 
-def findcorrelatedmets(model):
+def findcorrelatedmets(covariance, metabolites):
+    """[summary]
+
+    Arguments:
+        covariance {[type]} -- [description]
+        metabolites {[type]} -- [description]
+
+    Returns:
+        [type] -- [description]
+    """
     
-    covariance = model.cov_dG
     correlation_mat = cov2corr(covariance)
 
     # Check for nan in correlation matrix and keep track of them and the corresponding metabolites
@@ -49,10 +41,10 @@ def findcorrelatedmets(model):
     for i in range(len(correlation_mat)):
         if not np.isnan(correlation_mat[:,i]).all():
             non_prob_ind.append(i)
-            non_prob_mets.append(model.metabolites[i].id)
+            non_prob_mets.append(metabolites[i])
         else:
             prob_ind.append(i)
-            nan_mets.append(model.metabolites[i].id)
+            nan_mets.append(metabolites[i])
 
     reduced_correlation = correlation_mat[:, non_prob_ind]
     reduced_correlation = reduced_correlation[non_prob_ind, :]
@@ -85,18 +77,24 @@ def findcorrelatedmets(model):
     # Find indices that are highly correlated (corr > 0.7 | corr < -0.7) and check if they are same as high variance metabolites
     new_ellipsoid_ind = []
     old_ellipsoid_ind = []
-    test_high_var = final_correlation[:,ind_high_variances] # just to test only col of high var inds
-    for i in range(np.size(test_high_var, axis = 1)):
-        pos_corr = list(set(np.where(test_high_var[:,i] > 0.7)[0]))
-        neg_corr = list(set(np.where(test_high_var[:,i] < -0.7)[0]))
-        correlated_ind = pos_corr + neg_corr
-        if len(correlated_ind) == 0:
-            pass
-        if set(correlated_ind).issubset(set(ind_high_variances)):
-            new_ellipsoid_ind.append(test_high_var[i])
-        elif not set(correlated_ind).intersection(set(ind_high_variances)) == set(correlated_ind):
-            old_ellipsoid_ind.append(test_high_var[i])
+    no_ellipsoid_ind = []
+    no_ellipse_mets = []
+    new_ellipse_mets = []
+    old_ellipse_mets = []
+    for i in range(len(final_correlation)):
+        if i in ind_high_variances:
+            pos_corr = list(set(np.where(final_correlation[:,i] > 0.7)[0]))
+            neg_corr = list(set(np.where(final_correlation[:,i] < -0.7)[0]))
+            correlated_ind = pos_corr + neg_corr
+            if len(correlated_ind) == 0:
+               no_ellipse_mets.append(final_mets[i])
+            if set(correlated_ind).intersection(set(ind_high_variances))\
+                                 == set(correlated_ind):
+                new_ellipsoid_ind.append(i)
+                new_ellipse_mets.append(final_mets[i])
+            else:
+                old_ellipsoid_ind.append(i)
+                old_ellipse_mets.append(final_mets[i])
 
-
-    return final_correlation, final_mets, high_var_mets, ind_high_variances, final_cov
+    return old_ellipse_mets, new_ellipse_mets, 
     
