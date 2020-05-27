@@ -272,7 +272,7 @@ def quad_constraint(covar, mets, met_var_dict):
 
 def MIQP(model):
 
-    if model.solver.__class__.__module == "optlang.gurobi_interface":
+    if model.solver.__class__.__module__ == "optlang.gurobi_interface":
 
         solver_interface = model.solver.problem.copy()
 
@@ -282,7 +282,7 @@ def MIQP(model):
             if var.VarName.startswith("met_"):
                 metid_vars_dict[var.VarName[4:]] = var
 
-    elif model.solver.__class__.__module == "optlang.cplex_interface":
+    elif model.solver.__class__.__module__ == "optlang.cplex_interface":
         pass
 
     else:
@@ -322,7 +322,7 @@ def MIQP(model):
     solver_interface.addQConstr(lhs <= rhs, "qp_constraint")
     solver_interface.update()
 
-    solver_interface.write("test.lp")
+    solver_interface.write("QC_problem.lp")
 
     return solver_interface
 
