@@ -294,9 +294,7 @@ def MIQP(model):
     delete_met, cov_mets, cov_met_inds = [], [], []
 
     for met in model.metabolites:
-        if count_nonzero(
-            model.cholskey_matrix[:, model.metabolites.index(met)]
-        ) == 0 or isnan(met.delG_f):
+        if met.delG_f == 0 or isnan(met.delG_f):
             delete_met.append(met)
         else:
             cov_met_inds.append(model.metabolites.index(met))
