@@ -116,6 +116,7 @@ class tmodel(Model):
         self.solver.configuration.tolerances.integrality = tolerance_integral
         self.Exclude_reactions = list(set(Exclude_list + self.problematic_rxns))
         self.update_thermo_variables()
+        self.update()
 
         if not (
             optlang.available_solvers["GUROBI"] or optlang.available_solvers["CPLEX"]
@@ -124,9 +125,11 @@ class tmodel(Model):
                 'Quadratic constraints are only supported with GUROBI or CPLEX, Please use "box" or "sampling method"'
             )
         if self.solver.__class__.__module__ == "optlang.gurobi_interface":
-            self.gurobi_interface = MIQP(self)
+            self.solver.problem.update()
+            self.gurobi_interface = self.solver.problem
+            MIQP(self)
         elif self.solver.__class__.__module__ == "optlang.cplex_interface":
-            self.cplex_interface = MIQP(self)
+            self.cplex_interface = self.solver.problem.copy()
         else:
             warn(
                 "GUROBI/CPLEX not found. Quadratic constraints not supported for this model"
@@ -214,15 +217,13 @@ class tmodel(Model):
 
         # metabolite concentration, Ci and metabolite variables
         conc_variables = []
-        z_f_variables = []
         met_variables = []
 
         for metabolite in self.metabolites:
-            conc_var, ci_var, met_variable = metabolite_variables(metabolite)
+            conc_var, met_variable = metabolite_variables(metabolite)
             conc_variables.append(conc_var)
-            z_f_variables.append(ci_var)
             met_variables.append(met_variable)
-        self.add_cons_vars(conc_variables + z_f_variables + met_variables)
+        self.add_cons_vars(conc_variables + met_variables)
 
         # Now add reaction variables and generate remaining constraints
         for rxn in self.reactions:
@@ -322,25 +323,11 @@ class tmodel(Model):
             List -- List of themrodynamic constraints
         """
 
-        rxn_order, S = self.calculate_S_matrix()
-
-        # metabolite concentration and Ci variables
-        conc_variables = {}
-        z_f_variables = []
-
-        for metabolite in self.metabolites:
-
-            conc_variables[metabolite.id] = metabolite.concentration_variable
-            z_f_variables.append(metabolite.ci_variable)
-        # self.add_cons_vars(conc_variables + z_f_variables)
-
         rxn_constraints = []
         # Now add reaction variables and generate remaining constraints
         for rxn in self.reactions:
             if rxn.id in self.Exclude_reactions:
                 continue
-
-            rxn_index = rxn_order.index(rxn.id)
 
             # Direactionality constraint
             dir_f, dir_r = directionality(rxn)
@@ -349,9 +336,7 @@ class tmodel(Model):
             # delG constraint
             concentration_term = concentration_exp(rxn)
 
-            ci_term = (S.T[rxn_index, :] @ self.cholskey_matrix).dot(z_f_variables)
             met_term = met_exp_qp(rxn)
-            # ci_term = Ci_exp(rxn, z_f_variables)
 
             # temporarily removing ci expression and adding met_exp_qp for adding qcp. later we can check which is default and adjust accordingly
 

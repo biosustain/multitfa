@@ -71,9 +71,6 @@ def metabolite_variables(metabolite):
             lb=log(metabolite.concentration_min),
             ub=log(metabolite.concentration_max),
         )
-        Ci_variable = metabolite.model.problem.Variable(
-            "Ci_{}".format(metabolite.id), lb=-1.96, ub=1.96
-        )
 
         if isnan(metabolite.delG_f):
             lb_met = -100
@@ -84,7 +81,7 @@ def metabolite_variables(metabolite):
         met_variable = metabolite.model.problem.Variable(
             "met_{}".format(metabolite.id), lb=lb_met, ub=ub_met
         )
-        return conc_variable, Ci_variable, met_variable
+        return conc_variable, met_variable
     else:
         return None
 
@@ -274,7 +271,7 @@ def MIQP(model):
 
     if model.solver.__class__.__module__ == "optlang.gurobi_interface":
 
-        solver_interface = model.solver.problem.copy()
+        solver_interface = model.gurobi_interface
 
         # Get metabolite variable from gurobi interface
         metid_vars_dict = {}
@@ -322,7 +319,7 @@ def MIQP(model):
 
     solver_interface.write("QC_problem.lp")
 
-    return solver_interface
+    # return solver_interface
 
 
 def bounds_ellipsoid(covariance):

@@ -85,14 +85,6 @@ class Thermo_met(Metabolite):
         )
 
     @property
-    def ci_variable(self):
-        if self.model is not None:
-            conc_var = "Ci_{}".format(self.id)
-            return self.model.variables[conc_var]
-        else:
-            return None
-
-    @property
     def compound_variable(self):
         if self.model is not None:
             conc_var = "met_{}".format(self.id)
