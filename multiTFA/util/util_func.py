@@ -91,6 +91,9 @@ def findcorrelatedmets(covariance, metabolites):
             else:
                 old_ellipsoid_ind.append(i)
                 old_ellipse_mets.append(final_mets[i])
+        else:
+            old_ellipsoid_ind.append(i)
+            old_ellipse_mets.append(final_mets[i])
 
     return (
         old_ellipse_mets,

@@ -8,7 +8,8 @@ from ..util.constraints import (
     metabolite_variables,
     reaction_variables,
     met_exp_qp,
-    MIQP,
+    bounds_ellipsoid,
+    quad_constraint,
 )
 from copy import deepcopy, copy
 from ..util.dGf_calculation import calculate_dGf, cholesky_decomposition
@@ -127,7 +128,9 @@ class tmodel(Model):
         if self.solver.__class__.__module__ == "optlang.gurobi_interface":
             self.solver.problem.update()
             self.gurobi_interface = self.solver.problem
-            MIQP(self)
+            self.MIQP()
+            self.gurobi_interface.update()
+            self.gurobi_interface.write("gurobi_problem.lp")
         elif self.solver.__class__.__module__ == "optlang.cplex_interface":
             self.cplex_interface = self.solver.problem.copy()
         else:
@@ -401,6 +404,60 @@ class tmodel(Model):
             )
 
             self.add_cons_vars(ratio_constraint)
+
+    def MIQP(self):
+
+        if self.solver.__class__.__module__ == "optlang.gurobi_interface":
+
+            # solver_interface = self.gurobi_interface
+
+            # Get metabolite variable from gurobi interface
+            metid_vars_dict = {}
+            for var in self.gurobi_interface.getVars():
+                if var.VarName.startswith("met_"):
+                    metid_vars_dict[var.VarName[4:]] = var
+
+        elif self.solver.__class__.__module__ == "optlang.cplex_interface":
+            pass
+
+        else:
+            raise NotImplementedError(
+                "Current solver does not support quadratic constraints, please use Gurobi or Cplex"
+            )
+
+        # Problem metabolites, if met.delGf == 0 or cholesky row is zeros then delete them
+        delete_met, cov_mets, cov_met_inds = [], [], []
+
+        for met in self.metabolites:
+            if met.delG_f == 0 or isnan(met.delG_f):
+                delete_met.append(met)
+            else:
+                cov_met_inds.append(self.metabolites.index(met))
+                cov_mets.append(met)
+
+        cov_dg = self.cov_dG
+        # Pick indices of non zero non nan metabolites
+        cov_dG = cov_dg[:, cov_met_inds]
+        cov_dg = cov_dG[cov_met_inds, :]
+
+        lhs, rhs = quad_constraint(
+            cov_dg, cov_mets, metid_vars_dict
+        )  # Calculate lhs, rhs for quadratic constraints
+
+        # Calculate ellipsoid box bounds and set to variables
+        bounds = bounds_ellipsoid(cov_dg)  # Check for posdef cov_dg
+        for met in self.metabolites:
+            if met in delete_met:
+                continue
+            metid_vars_dict[met.id].LB = met.delG_f - bounds[cov_mets.index(met)]
+            metid_vars_dict[met.id].UB = met.delG_f + bounds[cov_mets.index(met)]
+
+        self.gurobi_interface.addConstr(lhs <= rhs, "qp_constraint")
+        self.gurobi_interface.update()
+
+        # self.gurobi_interface.write("QC_problem.lp")
+
+        # return solver_interface
 
     def lp_matrices_matlab(self):
         """[Variable order:
