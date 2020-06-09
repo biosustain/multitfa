@@ -92,6 +92,17 @@ class Thermo_met(Metabolite):
         else:
             return None
 
+    @property
+    def std_dev(self):
+        if self.model is not None:
+            std_dev = sqrt(
+                diag(self.model.cov_dG)[self.model.metabolites.index(self.id)]
+            )
+
+            return std_dev
+        else:
+            return 0
+
     def transform(self, pH, ionic_strength, temperature):
         """ Transform the delGf with respect to pH, ionic strength based on Alberty calculations
         

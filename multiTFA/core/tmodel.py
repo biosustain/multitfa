@@ -33,6 +33,7 @@ class tmodel(Model):
         concentration_dict={"min": {}, "max": {}},
         tolerance_integral=1e-9,
         del_psi_dict={},
+        solve_method="box",
         debug=False,
     ):
 
@@ -125,18 +126,23 @@ class tmodel(Model):
             warn(
                 'Quadratic constraints are only supported with GUROBI or CPLEX, Please use "box" or "sampling method"'
             )
-        if self.solver.__class__.__module__ == "optlang.gurobi_interface":
-            self.solver.problem.update()
-            self.gurobi_interface = self.solver.problem
-            self.MIQP()
-            self.gurobi_interface.update()
-            self.gurobi_interface.write("gurobi_problem.lp")
-        elif self.solver.__class__.__module__ == "optlang.cplex_interface":
-            self.cplex_interface = self.solver.problem.copy()
+            self.solve_method = "box"
         else:
-            warn(
-                "GUROBI/CPLEX not found. Quadratic constraints not supported for this model"
-            )
+            if self.solver.__class__.__module__ == "optlang.gurobi_interface":
+                self.solve_method = "qc"
+                self.solver.problem.update()
+                self.gurobi_interface = self.solver.problem
+                self.MIQP()
+                self.gurobi_interface.update()
+                self.gurobi_interface.write("gurobi_problem.lp")
+            elif self.solver.__class__.__module__ == "optlang.cplex_interface":
+                self.solve_method = "qc"
+                self.cplex_interface = self.solver.problem.copy()
+            else:
+                self.solve_method = "box"
+                warn(
+                    "GUROBI/CPLEX not found. Quadratic constraints not supported for this model"
+                )
 
     @property
     def cholskey_matrix(self):
@@ -272,47 +278,6 @@ class tmodel(Model):
 
         return rxn_order, S
 
-    def _base_constraints(self):
-        """ Idea is to generate base set of constraints and depending on whether we use box method or quadratic constraint method, we can add the rest of the terms accordingly. For delG constraint, I am keeping the rhs = delG_transform for now, but needs to be adjusted according to method
-
-        Vi - Vmax * Zi <= 0
-        delGr - K + K * Zi <= 0
-        delGr - RT * S.T * ln(x) =  S.T @ cholesky @ Zf - S.T @ delGf - delGtransport = 0
-
-        """
-        rxn_constraints = []
-        for rxn in self.reactions:
-            if rxn.id in self.Exclude_reactions:
-                continue
-
-            # Directionality constraint
-            dir_f, dir_r = directionality(rxn)
-            ind_f, ind_r = delG_indicator(rxn)
-
-            # delG constraint, Here in this case we are only adding the base terms, CI or met variables will be added later on depending on the box or MIQCP method.
-
-            concentration_term = concentration_exp(rxn)
-            lhs_forward = rxn.delG_forward - RT * concentration_term
-            lhs_reverse = rxn.delG_reverse + RT * concentration_term
-            rhs = rxn.delG_transform
-
-            delG_f = self.problem.Constraint(
-                lhs_forward,
-                lb=rhs,
-                ub=rhs,
-                name="delG_{}".format(rxn.forward_variable.name),
-            )
-
-            delG_r = self.problem.Constraint(
-                lhs_reverse,
-                lb=-rhs,
-                ub=-rhs,
-                name="delG_{}".format(rxn.reverse_variable.name),
-            )
-            rxn_constraints.extend([dir_f, dir_r, ind_f, ind_r, delG_f, delG_r])
-
-        pass
-
     def _generate_constraints(self):
 
         """ Generates thermodynamic constraints for the model. See util/constraints.py for detailed explanation of constraints
@@ -380,6 +345,18 @@ class tmodel(Model):
                 warn("Constraint {} already exists in the model".format(cons.name))
                 self.solver.remove(cons.name)
                 self.add_cons_vars([cons])
+
+    def optimize(self):
+
+        if self.solve_method == "box":
+            solution = self.solver.optimize()
+        elif self.solve_method == "qc":
+            if self.solver.__class__.__module__ == "optlang.gurobi_interface":
+                solution = self.gurobi_interface.optimize()
+            elif self.solver.__class__.__module__ == "optlang.cplex_interface":
+                solution = self.cplex_interface.solve()
+
+        return solution
 
     def concentration_ratio_constraints(self, ratio_metabolites, ratio_lb, ratio_ub):
         """ Function to add metabolite concentration ratio constraints to the model. E.g. ratio of redox pairs
@@ -452,7 +429,7 @@ class tmodel(Model):
             metid_vars_dict[met.id].LB = met.delG_f - bounds[cov_mets.index(met)]
             metid_vars_dict[met.id].UB = met.delG_f + bounds[cov_mets.index(met)]
 
-        self.gurobi_interface.addConstr(lhs <= rhs, "qp_constraint")
+        # self.gurobi_interface.addConstr(lhs <= rhs, "qp_constraint")
         self.gurobi_interface.update()
 
         # self.gurobi_interface.write("QC_problem.lp")

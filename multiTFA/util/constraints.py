@@ -76,8 +76,8 @@ def metabolite_variables(metabolite):
             lb_met = -100
             ub_met = 100
         else:
-            lb_met = metabolite.delG_f - 100
-            ub_met = metabolite.delG_f + 100
+            lb_met = metabolite.delG_f - 1.96 * metabolite.std_dev
+            ub_met = metabolite.delG_f + 1.96 * metabolite.std_dev
         met_variable = metabolite.model.problem.Variable(
             "met_{}".format(metabolite.id), lb=lb_met, ub=ub_met
         )
@@ -314,12 +314,12 @@ def MIQP(model):
         metid_vars_dict[met.id].LB = met.delG_f - bounds[cov_mets.index(met)]
         metid_vars_dict[met.id].UB = met.delG_f + bounds[cov_mets.index(met)]
 
-    solver_interface.addQConstr(lhs <= rhs, "qp_constraint")
+    # solver_interface.addQConstr(lhs <= rhs, "qp_constraint")
     solver_interface.update()
 
     solver_interface.write("QC_problem.lp")
 
-    # return solver_interface
+    return solver_interface
 
 
 def bounds_ellipsoid(covariance):
