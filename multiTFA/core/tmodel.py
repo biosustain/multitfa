@@ -18,7 +18,7 @@ from numpy import array, dot, sqrt, diag, isnan
 from warnings import warn
 from six import iteritems
 from cobra import Model
-from .solution import get_solution
+from .solution import get_solution, get_legacy_solution
 from cobra.core.dictlist import DictList
 import optlang
 
@@ -346,15 +346,31 @@ class tmodel(Model):
                 self.solver.remove(cons.name)
                 self.add_cons_vars([cons])
 
-    def optimize(self):
+    def optimize(self, solve_method="qc", raise_error=False):
 
-        if self.solve_method == "box":
-            solution = self.solver.optimize()
-        elif self.solve_method == "qc":
+        if not (
+            optlang.available_solvers["GUROBI"] or optlang.available_solvers["CPLEX"]
+        ):
+            solve_method = "ellipse"
+            warn(
+                "GUROBI/CPLEX not available, using ellipsoid sampling method to solve the problem"
+            )
+
+        if solve_method == "box":
+            self.slim_optimize()
+            solution = get_solution(self, raise_error=raise_error)
+            # solution = self.solver.optimize()
+        elif solve_method == "qc":
             if self.solver.__class__.__module__ == "optlang.gurobi_interface":
-                solution = self.gurobi_interface.optimize()
+                self.gurobi_interface.optimize()
+                solution = get_legacy_solution(self, solver="gurobi")
             elif self.solver.__class__.__module__ == "optlang.cplex_interface":
                 solution = self.cplex_interface.solve()
+                solution = get_legacy_solution(self, solver="cplex")
+        elif solve_method == "ellipse":
+            pass
+        else:
+            raise ValueError("Invalid argument")
 
         return solution
 
