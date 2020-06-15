@@ -12,6 +12,7 @@ from numpy import (
     count_nonzero,
     square,
     zeros,
+    newaxis,
 )
 from .thermo_constants import Vmax, RT, K
 from scipy.stats import chi2
@@ -72,7 +73,7 @@ def metabolite_variables(metabolite):
             ub=log(metabolite.concentration_max),
         )
 
-        if isnan(metabolite.delG_f):
+        if metabolite.delG_f == 0 or isnan(metabolite.delG_f):
             lb_met = -100
             ub_met = 100
         else:
@@ -175,24 +176,6 @@ def concentration_exp(reaction):
     return conc_exp
 
 
-def Ci_exp(reaction, z_f_variable):
-    """ Confidence interval term for the delG constraint
-    S.T @ Cholesky @ Z_f variables 
-    
-    Arguments:
-        reaction {core.reaction} -- reaction object
-        z_f_variable {List} -- C.I variables 
-    
-    Returns:
-        [symbolic exp] -- C.I expression
-    """
-
-    S_matrix = reaction.S_matrix
-    z_f_exp = (S_matrix.T[0, :] @ reaction.model.cholskey_matrix).dot(z_f_variable)
-
-    return z_f_exp
-
-
 def met_exp_qp(reaction):
 
     return sum(
@@ -221,19 +204,6 @@ def stddev_sampling_rhs(
     return rxn_delG_stdev
 
 
-def add_constraints(model, constraint):
-    """Check for duplicate constraints in the model and add 
-    
-    Arguments:
-        model {core.model} -- tmodel
-        constraint {model.problem.Constraint} -- Constraint to add
-    """
-    for cons in constraint:
-        if (cons in model.constraints) or (cons in model.variables):
-            continue
-        model.add_cons_vars(cons)
-
-
 def quad_constraint(covar, mets, met_var_dict):
     """ generates lhs and rhs for qudratic constraints for the metabolites
 
@@ -257,11 +227,10 @@ def quad_constraint(covar, mets, met_var_dict):
 
     met_var = [met_var_dict[met.id] for met in mets]
     centroids = [met.delG_f for met in mets]
+    lhs_vars = array(met_var) - array(centroids)
+    lhs_vars = lhs_vars[:, newaxis]
 
-    var_mu = array(met_var) - array(centroids)
-    var_mu = array([var_mu])
-
-    pre_lhs = var_mu @ inv_cov @ var_mu.T
+    pre_lhs = lhs_vars.T @ inv_cov @ lhs_vars
     lhs = pre_lhs[0]
 
     return lhs[0], chi_crit_val
