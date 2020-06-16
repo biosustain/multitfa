@@ -1,5 +1,6 @@
 import numpy as np
 from .posdef import isPD, nearestPD
+from collections import OrderedDict
 
 
 def cov2corr(covariance):
@@ -66,7 +67,7 @@ def findcorrelatedmets(covariance, metabolites):
     final_cov = final_cov[non_zero_ind, :]
 
     # Find high variance metabolites
-    ind_high_variances = list(np.where(np.sqrt(np.diag(final_cov)) > 10)[0])
+    ind_high_variances = list(np.where(np.sqrt(np.diag(final_cov)) > 25)[0])
 
     # Find indices that are highly correlated (corr > 0.7 | corr < -0.7) and check if they are same as high variance metabolites
     (
@@ -76,6 +77,7 @@ def findcorrelatedmets(covariance, metabolites):
         new_ellipse_mets,
         old_ellipse_mets,
     ) = ([], [], [], [], [])
+
     for i in range(len(final_correlation)):
         if i in ind_high_variances:
             pos_corr = list(set(np.where(final_correlation[:, i] > 0.7)[0]))
@@ -83,19 +85,24 @@ def findcorrelatedmets(covariance, metabolites):
             correlated_ind = pos_corr + neg_corr
             if len(correlated_ind) == 0:
                 no_ellipse_mets.append(final_mets[i])
+
             if set(correlated_ind).intersection(set(ind_high_variances)) == set(
                 correlated_ind
             ):
                 new_ellipsoid_ind.append(i)
                 new_ellipse_mets.append(final_mets[i])
+
             else:
                 old_ellipsoid_ind.append(i)
                 old_ellipse_mets.append(final_mets[i])
+
         else:
             old_ellipsoid_ind.append(i)
             old_ellipse_mets.append(final_mets[i])
 
-    return (
-        old_ellipse_mets,
-        new_ellipse_mets,
-    )
+    old_cov = final_cov[:, old_ellipsoid_ind]
+    old_cov = old_cov[old_ellipsoid_ind, :]
+    new_cov = final_cov[:, new_ellipsoid_ind]
+    new_cov = new_cov[new_ellipsoid_ind, :]
+
+    return (old_ellipse_mets, new_ellipse_mets, old_cov, new_cov)
