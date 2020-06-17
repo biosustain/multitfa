@@ -240,7 +240,7 @@ def MIQP(model):
 
     if model.solver.__class__.__module__ == "optlang.gurobi_interface":
 
-        solver_interface = model.gurobi_interface
+        solver_interface = model.solver.problem.copy()
 
         # Get metabolite variable from gurobi interface
         metid_vars_dict = {}
