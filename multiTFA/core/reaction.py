@@ -173,19 +173,15 @@ class thermo_reaction(Reaction):
             return None
 
     def cal_stoichiometric_matrix(self):
-
         """ Reaction stoichiometry, two columns to represent forward and reverse
         
         Returns:
             np.ndarray -- S matrix of reaction
         """
 
-        S_matrix = zeros((2, len(self.model.metabolites)))
-
+        S_matrix = zeros((1, len(self.model.metabolites)))
         for metabolite, stoic in iteritems(self.metabolites):
             S_matrix[0, self.model.metabolites.index(metabolite)] = stoic
-            S_matrix[1, self.model.metabolites.index(metabolite)] = -stoic
-
         stoichio = transpose(S_matrix)
 
         return stoichio

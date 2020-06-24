@@ -120,30 +120,6 @@ class tmodel(Model):
         self.update_thermo_variables()
         self.update()
 
-        if not (
-            optlang.available_solvers["GUROBI"] or optlang.available_solvers["CPLEX"]
-        ):
-            warn(
-                'Quadratic constraints are only supported with GUROBI or CPLEX, Please use "box" or "sampling method"'
-            )
-            self.solve_method = "box"
-        else:
-            if self.solver.__class__.__module__ == "optlang.gurobi_interface":
-                self.solve_method = "qc"
-                self.solver.problem.update()
-                self.gurobi_interface = self.solver.problem
-                self.MIQP()
-                self.gurobi_interface.update()
-                self.gurobi_interface.write("gurobi_problem.lp")
-            elif self.solver.__class__.__module__ == "optlang.cplex_interface":
-                self.solve_method = "qc"
-                self.cplex_interface = self.solver.problem.copy()
-            else:
-                self.solve_method = "box"
-                warn(
-                    "GUROBI/CPLEX not found. Quadratic constraints not supported for this model"
-                )
-
     @property
     def cholskey_matrix(self):
 
@@ -152,10 +128,34 @@ class tmodel(Model):
         Returns:
             np.ndarray 
         """
-
         std_dg, cov_dg = calculate_dGf(self.metabolites, self.Kegg_map)
         chol_matrix = cholesky_decomposition(std_dg, cov_dg)
+
         return chol_matrix
+
+    @property
+    def gurobi_interface(self):
+        if self.solver.__class__.__module__ == "optlang.gurobi_interface":
+            try:
+                return self._gurobi_interface
+            except AttributeError:
+                self._gurobi_interface = self.solver.problem.copy()
+                return self._gurobi_interface
+        else:
+            self._gurobi_interface = None
+            return self._gurobi_interface
+
+    @property
+    def cplex_interface(self):
+        if self.solver.__class__.__module__ == "optlang.cplex_interface":
+            try:
+                return self._cplex_interface
+            except AttributeError:
+                self._cplex_interface = copy(self.solver.problem)
+                return self._cplex_interface
+        else:
+            self._cplex_interface = None
+            return self._cplex_interface
 
     @property
     def problem_metabolites(self):
@@ -314,7 +314,7 @@ class tmodel(Model):
             lhs_reverse = (
                 rxn.delG_reverse + RT * concentration_term + met_term
             )  # ci_term
-            rhs = rxn.transform + rxn.transport_delG
+            rhs = rxn.delG_transform
 
             delG_f = self.problem.Constraint(
                 lhs_forward,
@@ -442,10 +442,10 @@ class tmodel(Model):
         for met in self.metabolites:
             if met in delete_met:
                 continue
-            metid_vars_dict[met.id].LB = met.delG_f - bounds[cov_mets.index(met)]
-            metid_vars_dict[met.id].UB = met.delG_f + bounds[cov_mets.index(met)]
+            metid_vars_dict[met.id].LB = -bounds[cov_mets.index(met)]
+            metid_vars_dict[met.id].UB = bounds[cov_mets.index(met)]
 
-        # self.gurobi_interface.addConstr(lhs <= rhs, "qp_constraint")
+        self.gurobi_interface.addConstr(lhs <= rhs, "qp_constraint")
         self.gurobi_interface.update()
 
         # self.gurobi_interface.write("QC_problem.lp")

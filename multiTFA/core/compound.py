@@ -72,6 +72,11 @@ class Thermo_met(Metabolite):
         self.concentration_variable.set_bounds(
             lb=log(value), ub=log(self.concentration_max)
         )
+        if self.model.gurobi_interface is not None:
+            self.model.gurobi_interface.getVarByName(
+                self.concentration_variable.name
+            ).LB = log(value)
+            self.model.gurobi_interface.update()
 
     @property
     def concentration_max(self):
@@ -83,6 +88,11 @@ class Thermo_met(Metabolite):
         self.concentration_variable.set_bounds(
             lb=log(self.concentration_min), ub=log(value)
         )
+        if self.model.gurobi_interface is not None:
+            self.model.gurobi_interface.getVarByName(
+                self.concentration_variable.name
+            ).UB = log(value)
+            self.model.gurobi_interface.update()
 
     @property
     def compound_variable(self):
