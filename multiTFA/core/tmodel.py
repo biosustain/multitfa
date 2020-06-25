@@ -243,36 +243,23 @@ class tmodel(Model):
 
     def calculate_S_matrix(self):
 
-        """ Calculates the stoichiometric matrix (metabolites * 2*Reactions)
-        Each reaction has two column entries to represent forward and reverse.
-        
-        Note: S matrix is calculated only for the reactions involved in thermodynamic analysis.
+        """ Calculates the stoichiometric matrix (metabolites * Reactions)
 
         Returns:
             Tuple  -- Tuple of reaction order, np.ndarray of stoichiometric matrix
         """
 
-        core_rxn = [
-            rxn.id for rxn in self.reactions if rxn.id not in self.Exclude_reactions
-        ]
-
-        n_reactions = len(core_rxn)
+        n_reactions = len(self.reactions)
         n_metabolites = len(self.metabolites)
-        S_matrix = np.zeros((2 * n_reactions, n_metabolites))
+        S_matrix = np.zeros((n_reactions, n_metabolites))
 
         reaction_index = 0
         rxn_order = []
-        for rxn in core_rxn:
-            reaction = self.reactions.get_by_id(rxn)
-            rxn_order.extend(
-                [reaction.forward_variable.name, reaction.reverse_variable.name]
-            )
+        for reaction in self.reactions:
+            rxn_order.append(reaction.forward_variable.name)
             for metabolite, stoic in iteritems(reaction.metabolites):
                 S_matrix[reaction_index, self.metabolites.index(metabolite)] = stoic
-                S_matrix[
-                    reaction_index + 1, self.metabolites.index(metabolite)
-                ] = -stoic
-            reaction_index = reaction_index + 2
+            reaction_index = reaction_index + 1
 
         S = np.transpose(S_matrix)
 
