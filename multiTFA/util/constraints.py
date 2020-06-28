@@ -1,26 +1,12 @@
 from six import iteritems
-from numpy import (
-    log,
-    isnan,
-    where,
-    delete,
-    array,
-    linalg,
-    sqrt,
-    diag,
-    shape,
-    count_nonzero,
-    square,
-    zeros,
-    newaxis,
-)
+import numpy as np
 from .thermo_constants import Vmax, RT, K
 from scipy.stats import chi2
 from .posdef import nearestPD, isPD
 from .util_func import findcorrelatedmets
 
 
-""" This is a supplementary script to create all thermodynamic varibales and consraints to add to the model.
+""" This is a supplementary script to create all thermodynamic variables and constraints to add to the model.
 """
 
 
@@ -35,10 +21,10 @@ def reaction_variables(reaction):
     """
     if reaction.model is not None:
         delG_forward = reaction.model.problem.Variable(
-            "dG_{}".format(reaction.forward_variable.name), lb=-1000, ub=1000
+            "dG_{}".format(reaction.forward_variable.name), lb=-1e5, ub=1e5
         )
         delG_reverse = reaction.model.problem.Variable(
-            "dG_{}".format(reaction.reverse_variable.name), lb=-1000, ub=1000
+            "dG_{}".format(reaction.reverse_variable.name), lb=-1e5, ub=1e5
         )
         indicator_forward = reaction.model.problem.Variable(
             "indicator_{}".format(reaction.forward_variable.name),
@@ -58,27 +44,28 @@ def reaction_variables(reaction):
 
 
 def metabolite_variables(metabolite):
-    """ Metabolite concentration and Confidence interval variables. Ci is set between 2 S.D (-1.96 to 1.96)
+    """ Metabolite concentration and formation energy variables. formation energy is varied between mean +/- 2 S.D for box type constraints or calculated separately otherwise based on eigen values and vectors.
     
     Arguments:
-        metabolite {model.metabolite} -- core.compound object
+        metabolite {model.metabolite} -- core.thermo_met object
     
     Returns:
-        [tuple] -- Tuple of concentration variable and C.I variable
+        [tuple] -- Tuple of concentration variable and formation energy variable
     """
     if metabolite.model is not None:
         conc_variable = metabolite.model.problem.Variable(
             "lnc_{}".format(metabolite.id),
-            lb=log(metabolite.concentration_min),
-            ub=log(metabolite.concentration_max),
+            lb=np.log(metabolite.concentration_min),
+            ub=np.log(metabolite.concentration_max),
         )
 
-        if metabolite.delG_f == 0 or isnan(metabolite.delG_f):
+        if metabolite.delG_f == 0 or np.isnan(metabolite.delG_f):
             lb_met = -100
             ub_met = 100
         else:
             lb_met = metabolite.delG_f - 1.96 * metabolite.std_dev
             ub_met = metabolite.delG_f + 1.96 * metabolite.std_dev
+
         met_variable = metabolite.model.problem.Variable(
             "met_{}".format(metabolite.id), lb=lb_met, ub=ub_met
         )
@@ -143,21 +130,6 @@ def delG_indicator(reaction):
         return None
 
 
-def massbalance_constraint(model):
-    """metabolite mass balance constraints, copying from cobra model
-    
-    Arguments:
-        metabolites {core.compound} -- compound object
-    
-    Returns:
-        [List] -- List of mass balance consttaints
-    """
-    mass_balance = []
-    for met in model.metabolites:
-        mass_balance.append(met.constraint)
-    return mass_balance
-
-
 def concentration_exp(reaction):
     """ Concentration term for the delG constraint
     S.T @ ln(X) implemented as sum(stoic * met.conc_var for all mets in reaction)
@@ -176,7 +148,7 @@ def concentration_exp(reaction):
     return conc_exp
 
 
-def met_exp_qp(reaction):
+def formation_exp(reaction):
 
     return sum(
         stoic * metabolite.compound_variable
@@ -221,74 +193,18 @@ def quad_constraint(covar, mets, met_var_dict):
         nearPD = nearestPD(covar)
     else:
         nearPD = covar
+    inv_cov = np.linalg.inv(nearPD)
 
-    inv_cov = linalg.inv(nearPD)
-    chi_crit_val = chi2.isf(q=0.05, df=len(covar))
-
+    chi_crit_val = chi2.isf(q=0.05, df=len(covar))  # Chi square
     met_var = [met_var_dict[met.id] for met in mets]
     centroids = [met.delG_f for met in mets]
-    lhs_vars = array(met_var) - array(centroids)
-    lhs_vars = lhs_vars[:, newaxis]
+    lhs_vars = np.array(met_var) - np.array(centroids)
+    lhs_vars = lhs_vars[:, np.newaxis]
 
     pre_lhs = lhs_vars.T @ inv_cov @ lhs_vars
     lhs = pre_lhs[0]
 
     return lhs[0], chi_crit_val
-
-
-def MIQP(model):
-
-    if model.solver.__class__.__module__ == "optlang.gurobi_interface":
-
-        solver_interface = model.solver.problem.copy()
-
-        # Get metabolite variable from gurobi interface
-        metid_vars_dict = {}
-        for var in solver_interface.getVars():
-            if var.VarName.startswith("met_"):
-                metid_vars_dict[var.VarName[4:]] = var
-
-    elif model.solver.__class__.__module__ == "optlang.cplex_interface":
-        pass
-
-    else:
-        raise NotImplementedError(
-            "Current solver does not support quadratic constraints, please use Gurobi or Cplex"
-        )
-
-    # Problem metabolites, if met.delGf == 0 or cholesky row is zeros then delete them
-    delete_met, cov_mets, cov_met_inds = [], [], []
-
-    for met in model.metabolites:
-        if met.delG_f == 0 or isnan(met.delG_f):
-            delete_met.append(met)
-        else:
-            cov_met_inds.append(model.metabolites.index(met))
-            cov_mets.append(met)
-
-    cov_dg = model.cov_dG
-    # Pick indices of non zero non nan metabolites
-    cov_dG = cov_dg[:, cov_met_inds]
-    cov_dg = cov_dG[cov_met_inds, :]
-
-    lhs, rhs = quad_constraint(
-        cov_dg, cov_mets, metid_vars_dict
-    )  # Calculate lhs, rhs for quadratic constraints
-
-    # Calculate ellipsoid box bounds and set to variables
-    bounds = bounds_ellipsoid(cov_dg)  # Check for posdef cov_dg
-    for met in model.metabolites:
-        if met in delete_met:
-            continue
-        metid_vars_dict[met.id].LB = met.delG_f - bounds[cov_mets.index(met)]
-        metid_vars_dict[met.id].UB = met.delG_f + bounds[cov_mets.index(met)]
-
-    # solver_interface.addQConstr(lhs <= rhs, "qp_constraint")
-    solver_interface.update()
-
-    solver_interface.write("QC_problem.lp")
-
-    return solver_interface
 
 
 def bounds_ellipsoid(covariance):
@@ -305,14 +221,14 @@ def bounds_ellipsoid(covariance):
 
     # First calculate the half lengths of ellipsoid
     chi2_value = chi2.isf(q=0.05, df=len(covariance))
-    eig_val, eig_vec = linalg.eig(covariance)
-    half_len = sqrt(chi2_value * eig_val)
+    eig_val, eig_vec = np.linalg.eig(covariance)
+    half_len = np.sqrt(chi2_value * eig_val)
 
     # Calculate unit eigen vectors and UB in various axis for formation energies
-    bounds_mat = zeros((len(covariance), len(covariance)))
+    bounds_mat = np.zeros((len(covariance), len(covariance)))
 
     for i in range(len(eig_vec)):
-        scaling = sqrt(sum(square(eig_vec[:, i])))
+        scaling = np.sqrt(np.sum(np.square(eig_vec[:, i])))
         unit_vec = eig_vec[:, i] / scaling
         bounds_mat[:, i] = half_len[i] * unit_vec
 

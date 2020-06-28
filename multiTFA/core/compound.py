@@ -2,7 +2,7 @@ from cobra import Metabolite
 from ..comp_cache import comp_cache
 from numpy import logaddexp, log, diag, sqrt
 from ..util.dGf_calculation import calculate_dGf
-from ..util.thermo_constants import RT
+from ..util.thermo_constants import RT, default_T
 from six import iteritems
 from copy import copy, deepcopy
 
@@ -113,7 +113,7 @@ class Thermo_met(Metabolite):
         else:
             return 0
 
-    def transform(self, pH, ionic_strength, temperature):
+    def transform(self, pH, ionic_strength):
         """ Transform the delGf with respect to pH, ionic strength based on Alberty calculations
         
         Arguments:
@@ -127,7 +127,7 @@ class Thermo_met(Metabolite):
         ccache = comp_cache(self.Kegg_id)
         if ccache.microspecies != []:
             ddg_over_rt = sorted(
-                -1 * ms.transform(pH, ionic_strength, temperature)
+                -1 * ms.transform(pH, ionic_strength, default_T)
                 for ms in ccache.microspecies
             )
 

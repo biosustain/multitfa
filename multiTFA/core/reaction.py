@@ -5,7 +5,7 @@ from numpy import zeros, dot
 from .compound import Thermo_met
 from ..util.thermo_constants import FARADAY
 from copy import deepcopy
-from ..util.thermo_constants import K, Vmax, RT
+from ..util.thermo_constants import K, Vmax, RT, default_T
 from copy import copy, deepcopy
 from numpy import transpose
 
@@ -27,7 +27,7 @@ class thermo_reaction(Reaction):
         cobra_rxn,
         updated_model=None,
         Kegg_map={},
-        pH_I_T_dict={},
+        pH_I_dict={},
         del_psi_dict={},
         isTrans=False,
         rxn_delG=0,
@@ -70,7 +70,7 @@ class thermo_reaction(Reaction):
             new_gene._reaction.add(self)
 
         self.Kegg_map = Kegg_map
-        self.pH_I_T_dict = pH_I_T_dict
+        self.pH_I_dict = pH_I_dict
         self.concentration_dict = concentration_dict
         self.transport_metabolites = self.find_transportMets()
         self.del_psi_dict = del_psi_dict
@@ -200,10 +200,9 @@ class thermo_reaction(Reaction):
 
         rxn_delG = 0
         for metabolite, stoic in iteritems(self.metabolites):
-            pH = self.pH_I_T_dict["pH"][metabolite.compartment]
-            ionic_strength = self.pH_I_T_dict["I"][metabolite.compartment]
-            temperature = self.pH_I_T_dict["T"][metabolite.compartment]
-            transform = metabolite.transform(pH, ionic_strength, temperature)
+            pH = self.pH_I_dict["pH"][metabolite.compartment]
+            ionic_strength = self.pH_I_dict["I"][metabolite.compartment]
+            transform = metabolite.transform(pH, ionic_strength)
             rxn_delG += stoic * (float(metabolite.delG_f) + transform)
 
         return rxn_delG
@@ -212,10 +211,9 @@ class thermo_reaction(Reaction):
 
         transform_adjust = 0
         for metabolite, stoic in iteritems(self.metabolites):
-            pH = self.pH_I_T_dict["pH"][metabolite.compartment]
-            ionic_strength = self.pH_I_T_dict["I"][metabolite.compartment]
-            temperature = self.pH_I_T_dict["T"][metabolite.compartment]
-            transform = metabolite.transform(pH, ionic_strength, temperature)
+            pH = self.pH_I_dict["pH"][metabolite.compartment]
+            ionic_strength = self.pH_I_dict["I"][metabolite.compartment]
+            transform = metabolite.transform(pH, ionic_strength)
             transform_adjust += stoic * transform
         return transform_adjust
 

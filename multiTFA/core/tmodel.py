@@ -7,14 +7,13 @@ from ..util.constraints import (
     concentration_exp,
     metabolite_variables,
     reaction_variables,
-    met_exp_qp,
+    formation_exp,
     bounds_ellipsoid,
     quad_constraint,
 )
 from copy import deepcopy, copy
 from ..util.dGf_calculation import calculate_dGf, cholesky_decomposition
 from .compound import Thermo_met
-from numpy import array, dot, sqrt, diag, isnan
 from warnings import warn
 from six import iteritems
 from cobra import Model
@@ -29,14 +28,12 @@ class tmodel(Model):
         model,
         Kegg_map={},
         Exclude_list=[],
-        pH_I_T_dict={},
+        pH_I_dict={},
         concentration_dict={"min": {}, "max": {}},
         tolerance_integral=1e-9,
         del_psi_dict={},
-        solve_method="box",
         debug=False,
     ):
-
         """ Class representation of tMFA model, dependeds on cobra model class.
         
         Arguments:
@@ -47,11 +44,11 @@ class tmodel(Model):
             
             Exclude_list {list} -- Reaction ids that needs to be excluded from thermodynamic analysis (e.g: exchange/sinks)  (default: {[]})
             
-            pH_I_T_dict {dict} -- Dictionary of pH, ionic strength of different compartments, parameters for all the compartments needs to be specified  (default: {{}})
+            pH_I_dict {dict} -- Dictionary of pH, ionic strength of different compartments, parameters for all the compartments needs to be specified  (default: {{}})
             
             concentration_dict {dict} -- Dictionary of min/max concentrations of metabolites where available (default: {{'min':{},'max':{}}})
             
-            tolerance_integral {float} -- Integral tolerance of the solver (We recemmond 1e-9 for tmfa problems) (default: {1e-9})
+            tolerance_integral {float} -- Integral tolerance of the solver (We recommend 1e-9 for tmfa problems) (default: {1e-9})
             
             del_psi_dict {dict} -- membrane potential dictionary for all the compartments in the model (default: {{}})
             
@@ -98,7 +95,7 @@ class tmodel(Model):
                 cobra_rxn=reaction,
                 updated_model=self,
                 Kegg_map=Kegg_map,
-                pH_I_T_dict=pH_I_T_dict,
+                pH_I_dict=pH_I_dict,
                 del_psi_dict=del_psi_dict,
             )
             self.reactions.append(new_reaction)
@@ -111,18 +108,19 @@ class tmodel(Model):
 
         self.Kegg_map = Kegg_map
         self.Exclude_list = Exclude_list
-        self.pH_I_T_dict = pH_I_T_dict
+        self.pH_I_dict = pH_I_dict
         self.concentration_dict = concentration_dict
         self.del_psi_dict = del_psi_dict
         self.covariance_matrix()
         self.solver.configuration.tolerances.integrality = tolerance_integral
-        self.Exclude_reactions = list(set(Exclude_list + self.problematic_rxns))
+        self.Exclude_reactions = list(
+            set(Exclude_list + self.problematic_rxns)
+        )  # See if we can make this a cached property
         self.update_thermo_variables()
         self.update()
 
     @property
     def cholskey_matrix(self):
-
         """Calculates cholesky matrix (square root of covariance matrix of compounds)
         
         Returns:
@@ -135,31 +133,30 @@ class tmodel(Model):
 
     @property
     def gurobi_interface(self):
-        if self.solver.__class__.__module__ == "optlang.gurobi_interface":
-            try:
-                return self._gurobi_interface
-            except AttributeError:
+        try:
+            return self._gurobi_interface
+        except AttributeError:
+            if self.solver.__class__.__module__ == "optlang.gurobi_interface":
                 self._gurobi_interface = self.solver.problem.copy()
                 return self._gurobi_interface
-        else:
-            self._gurobi_interface = None
-            return self._gurobi_interface
+            else:
+                self._gurobi_interface = None
+                return self._gurobi_interface
 
     @property
     def cplex_interface(self):
-        if self.solver.__class__.__module__ == "optlang.cplex_interface":
-            try:
-                return self._cplex_interface
-            except AttributeError:
+        try:
+            return self._cplex_interface
+        except AttributeError:
+            if self.solver.__class__.__module__ == "optlang.cplex_interface":
                 self._cplex_interface = copy(self.solver.problem)
                 return self._cplex_interface
-        else:
-            self._cplex_interface = None
-            return self._cplex_interface
+            else:
+                self._cplex_interface = None
+                return self._cplex_interface
 
     @property
     def problem_metabolites(self):
-
         """ Metabolites for which we can't calculate the Gibbs free energy of formation using component contribution method
 
         Metabolites are considered problematic metabolites if whole row in cholesky matrix is zero
@@ -174,7 +171,7 @@ class tmodel(Model):
             met_index = self.metabolites.index(met)
             if met.Kegg_id in ["C00080", "cpd00067"]:
                 continue
-            if np.count_nonzero(self.cholskey_matrix[:, met_index]) == 0 or isnan(
+            if np.count_nonzero(self.cholskey_matrix[:, met_index]) == 0 or np.isnan(
                 met.delG_f
             ):  # or sqrt(diag(self.cov_dG)[self.metabolites.index(met)]) > 100:
                 problematic_metabolites.append(met)
@@ -183,7 +180,6 @@ class tmodel(Model):
 
     @property
     def problematic_rxns(self):
-
         """ Reactions which can't be included in thermodynamic analysis
             reactions involving problematic metabolites
         
@@ -213,7 +209,6 @@ class tmodel(Model):
         self.std_dG, self.cov_dG = calculate_dGf(self.metabolites, self.Kegg_map)
 
     def update_thermo_variables(self):
-
         """ Generates reaction and metabolite variables required for thermodynamic analysis and adds to the model
 
         Variables generated --
@@ -242,7 +237,6 @@ class tmodel(Model):
             self.add_cons_vars(reaction_vars)
 
     def calculate_S_matrix(self):
-
         """ Calculates the stoichiometric matrix (metabolites * Reactions)
 
         Returns:
@@ -251,27 +245,30 @@ class tmodel(Model):
 
         n_reactions = len(self.reactions)
         n_metabolites = len(self.metabolites)
-        S_matrix = np.zeros((n_reactions, n_metabolites))
+        S_matrix = np.zeros((2 * n_reactions, n_metabolites))
 
         reaction_index = 0
         rxn_order = []
         for reaction in self.reactions:
             rxn_order.append(reaction.forward_variable.name)
+            rxn_order.append(reaction.reverse_variable.name)
             for metabolite, stoic in iteritems(reaction.metabolites):
                 S_matrix[reaction_index, self.metabolites.index(metabolite)] = stoic
-            reaction_index = reaction_index + 1
+                S_matrix[
+                    reaction_index + 1, self.metabolites.index(metabolite)
+                ] = -stoic
+            reaction_index = reaction_index + 2
 
         S = np.transpose(S_matrix)
 
         return rxn_order, S
 
     def _generate_constraints(self):
-
         """ Generates thermodynamic constraints for the model. See util/constraints.py for detailed explanation of constraints
 
         Vi - Vmax * Zi <= 0
         delGr - K + K * Zi <= 0
-        delGr - RT * S.T * ln(x) - S.T @ cholesky @ Zf - S.T @ delGf - delGtransport = 0
+        delGr - RT * S.T * ln(x) - S.T @ delGf - delGtransport = 0
 
         
         Returns:
@@ -290,17 +287,10 @@ class tmodel(Model):
 
             # delG constraint
             concentration_term = concentration_exp(rxn)
+            met_term = formation_exp(rxn)
 
-            met_term = met_exp_qp(rxn)
-
-            # temporarily removing ci expression and adding met_exp_qp for adding qcp. later we can check which is default and adjust accordingly
-
-            lhs_forward = (
-                rxn.delG_forward - RT * concentration_term - met_term
-            )  # - ci_term
-            lhs_reverse = (
-                rxn.delG_reverse + RT * concentration_term + met_term
-            )  # ci_term
+            lhs_forward = rxn.delG_forward - RT * concentration_term - met_term
+            lhs_reverse = rxn.delG_reverse + RT * concentration_term + met_term
             rhs = rxn.delG_transform
 
             delG_f = self.problem.Constraint(
@@ -321,7 +311,6 @@ class tmodel(Model):
         return rxn_constraints
 
     def update(self):
-
         """ Adds the generated thermo constaints to  model. Checks for duplication 
         """
         constraints = self._generate_constraints()
@@ -329,37 +318,52 @@ class tmodel(Model):
             if cons.name not in self.constraints:
                 self.add_cons_vars([cons])
             else:
-                warn("Constraint {} already exists in the model".format(cons.name))
+                warn(
+                    "Constraint {} already in the model, removing previous entry".format(
+                        cons.name
+                    )
+                )
                 self.solver.remove(cons.name)
                 self.add_cons_vars([cons])
 
-    def optimize(self, solve_method="qc", raise_error=False):
+    def optimize(self, solve_method="MIQC", raise_error=False):
+        """ solves the model with given constraints. By default, we try to solve the model with quadratic constraints. Note: Quadratic constraints are supported by Gurobi/Cplex currently. if either of two solvers are not found, one can solve 'box' type MILP problem.
 
-        if not (
-            optlang.available_solvers["GUROBI"] or optlang.available_solvers["CPLEX"]
-        ):
-            solve_method = "ellipse"
-            warn(
-                "GUROBI/CPLEX not available, using ellipsoid sampling method to solve the problem"
-            )
+        :param solve_method: Method to solve the problem, defaults to "MIQC", any other string input leades to solving with box MILP  
+        :type solve_method: str, optional
+        :param raise_error: , defaults to False
+        :type raise_error: bool, optional
+        :return: returns solution object
+        :rtype: solution object (refer to Solution class)
+        """
 
-        if solve_method == "box":
-            self.slim_optimize()
-            solution = get_solution(self, raise_error=raise_error)
-            # solution = self.solver.optimize()
-        elif solve_method == "qc":
+        if solve_method == "MIQC":
+            if not (
+                optlang.available_solvers["GUROBI"]
+                or optlang.available_solvers["CPLEX"]
+            ):
+                warn(
+                    "GUROBI/CPLEX not available, Quadratic constraints are not supported by current solver"
+                )
+                return
+
             if self.solver.__class__.__module__ == "optlang.gurobi_interface":
                 self.gurobi_interface.optimize()
                 solution = get_legacy_solution(self, solver="gurobi")
+
+                return solution
+
             elif self.solver.__class__.__module__ == "optlang.cplex_interface":
                 solution = self.cplex_interface.solve()
                 solution = get_legacy_solution(self, solver="cplex")
-        elif solve_method == "ellipse":
-            pass
-        else:
-            raise ValueError("Invalid argument")
 
-        return solution
+                return solution
+
+        else:
+            self.slim_optimize()
+            solution = get_solution(self, raise_error=raise_error)
+
+            return solution
 
     def concentration_ratio_constraints(self, ratio_metabolites, ratio_lb, ratio_ub):
         """ Function to add metabolite concentration ratio constraints to the model. E.g. ratio of redox pairs
@@ -385,12 +389,18 @@ class tmodel(Model):
 
             self.add_cons_vars(ratio_constraint)
 
-    def MIQP(self):
+    def Quadratic_constraint(self):
+        """ Adds Quadratic constraint to the model's Gurobi/Cplex Interface. 
+        (x-mu).T @ inv(cov) @ (x-mu) <= chi-square
+        Note: This one creates one ellipsoidal constraint for all the metabolites that has non zero or non 'nan' formation energy, irrespective of the magnitude of variance. if the model is infeasible after adding this constraint, refer to util_func.py, find_correlated metabolites to add different ellipsoidal constraints to high variance and normal compounds to avoid possible numerical issues.
+        
+        Unable to retrieve quadratic constraints in Gurobi model, can see the QC when printed.
 
+        :raises NotImplementedError: Implemented only for Gurobi/Cplex interfaces.
+        :return: [description]
+        :rtype: [type]
+        """
         if self.solver.__class__.__module__ == "optlang.gurobi_interface":
-
-            # solver_interface = self.gurobi_interface
-
             # Get metabolite variable from gurobi interface
             metid_vars_dict = {}
             for var in self.gurobi_interface.getVars():
@@ -409,15 +419,14 @@ class tmodel(Model):
         delete_met, cov_mets, cov_met_inds = [], [], []
 
         for met in self.metabolites:
-            if met.delG_f == 0 or isnan(met.delG_f):
+            if met.delG_f == 0 or np.isnan(met.delG_f):
                 delete_met.append(met)
             else:
                 cov_met_inds.append(self.metabolites.index(met))
                 cov_mets.append(met)
 
-        cov_dg = self.cov_dG
         # Pick indices of non zero non nan metabolites
-        cov_dG = cov_dg[:, cov_met_inds]
+        cov_dG = self.cov_dG[:, cov_met_inds]
         cov_dg = cov_dG[cov_met_inds, :]
 
         lhs, rhs = quad_constraint(
@@ -426,139 +435,123 @@ class tmodel(Model):
 
         # Calculate ellipsoid box bounds and set to variables
         bounds = bounds_ellipsoid(cov_dg)  # Check for posdef cov_dg
-        for met in self.metabolites:
-            if met in delete_met:
-                continue
-            metid_vars_dict[met.id].LB = -bounds[cov_mets.index(met)]
-            metid_vars_dict[met.id].UB = bounds[cov_mets.index(met)]
 
-        self.gurobi_interface.addConstr(lhs <= rhs, "qp_constraint")
-        self.gurobi_interface.update()
+        if self.solver.__class__.__module__ == "optlang.gurobi_interface":
+            for met in self.metabolites:
+                if met in delete_met:
+                    continue
+                metid_vars_dict[met.id].LB = met.delG_f - bounds[cov_mets.index(met)]
+                metid_vars_dict[met.id].UB = met.delG_f + bounds[cov_mets.index(met)]
 
-        # self.gurobi_interface.write("QC_problem.lp")
+            self.gurobi_interface.addConstr(lhs <= rhs, "Quadratic_cons")
+            self.gurobi_interface.update()
 
-        # return solver_interface
+        elif self.solver.__class__.__module__ == "optlang.cplex_interface":
+            pass
 
-    def lp_matrices_matlab(self):
-        """[Variable order:
-            flux,excluded reactions, binary, delG, concentration, significance]
+        else:
+            raise NotImplementedError("Current solver doesn't support QC")
+
+    def export_MIP_matrix(self):
+        """ Creates matrices structure of the MILP problem. Quadratic constraint is not exported.
+
+        :return: lhs- lhs matrix representing all constraints
+                rhs - rhs matrix
+                var_names - variable name
+                lb, ub- lower, upper bounds of variables
+                cons_sense - constraint sense (eg: equal, less equal etc)
+
+        :rtype: Tuple
         """
-        _, S = self.calculate_S_matrix()
-        core_rxn = [
-            rxn for rxn in self.reactions if rxn.id not in self.Exclude_reactions
-        ]
-        m, n = np.shape(S)
 
-        S_Ex = np.zeros((len(self.Exclude_reactions), len(self.metabolites)))
-        i = 0
-        for rxn_id in self.Exclude_reactions:
-            reaction = self.reactions.get_by_id(rxn_id)
-            for metabolite, stoic in iteritems(reaction.metabolites):
-                S_Ex[i, self.metabolites.index(metabolite.id)] = stoic
-            i = i + 1
-        S_Exclude = S_Ex.T
+        rxn_var, S = self.calculate_S_matrix()
+        n_mets, rxn_tot = np.shape(S)
+        n_rxn_Excl = len(self.Exclude_reactions)
+        n_core_rxns = rxn_tot - n_rxn_Excl
 
-        _, y = np.shape(S_Exclude)
-        mass_matrix = np.concatenate(
-            (S, S_Exclude, np.zeros((m, 2 * m + 2 * n))), axis=1
+        # Create S.v = 0 and expand for other constraints
+        mass_balance = np.concatenate(
+            (S, np.zeros((n_mets, 2 * n_core_rxns + 2 * n_mets))), axis=1
         )
-        flux_indicator = np.concatenate(
-            (np.eye(n), np.zeros((n, y)), -1000 * np.eye(n), np.zeros((n, 2 * m + n))),
-            axis=1,
+        rhs_mass_bal = [0] * n_mets
+        sense_mass_bal = ["E"] * n_mets
+
+        indicators, delGr, concentration, formation, rhs_delG, sense = (
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
         )
-        delG_indicator_matrix = np.concatenate(
-            (
-                np.zeros((n, n)),
-                np.zeros((n, y)),
-                K * np.eye(n),
-                np.eye(n),
-                np.zeros((n, 2 * m)),
-            ),
-            axis=1,
+        # Intialize 6 constraints
+        delG_cons_matrix = np.zeros((2 * n_core_rxns, 3 * n_core_rxns + 2 * n_mets))
+        for reaction in self.reactions:
+            if reaction.id in self.Exclude_reactions:
+                continue
+            S_rxn = reaction.S_matrix
+            rxn_index = rxn_var.index(reaction.id)
+            # vi-vmax*zi <= 0
+            delG_cons_matrix[rxn_index, rxn_index] = 1
+            delG_cons_matrix[rxn_index + 1, rxn_index] = 1
+            delG_cons_matrix[rxn_index, rxn_index + n_core_rxns] = -Vmax
+            delG_cons_matrix[rxn_index + 1, rxn_index + n_core_rxns] = -Vmax
+            # delG - k*zi <= k
+            delG_cons_matrix[rxn_index + 2, 2 * n_core_rxns + rxn_index] = 1
+            delG_cons_matrix[rxn_index + 3, 2 * n_core_rxns + rxn_index] = 1
+            delG_cons_matrix[rxn_index + 2, n_core_rxns + rxn_index] = -K
+            delG_cons_matrix[rxn_index + 3, n_core_rxns + rxn_index] = -K
+            # delG - s.T RT ln(x) - S.T delGf = 0
+            delG_cons_matrix[rxn_index + 4, 2 * n_core_rxns + rxn_index] = 1
+            delG_cons_matrix[rxn_index + 5, 2 * n_core_rxns + rxn_index] = 1
+            delG_cons_matrix[
+                rxn_index + 4, 3 * n_core_rxns : 3 * n_core_rxns + n_mets
+            ] = -S_rxn.T
+            delG_cons_matrix[
+                rxn_index + 5, 3 * n_core_rxns : 3 * n_core_rxns + n_mets
+            ] = S_rxn.T
+            delG_cons_matrix[
+                rxn_index + 4, 3 * n_core_rxns + n_mets : 3 * n_core_rxns + 2 * n_mets
+            ] = -S_rxn.T
+            delG_cons_matrix[
+                rxn_index + 5, 3 * n_core_rxns + n_mets : 3 * n_core_rxns + 2 * n_mets
+            ] = S_rxn.T
+
+            indicators.extend(
+                [reaction.indicator_forward.name, reaction.indicator_reverse.name]
+            )
+            delGr.extend([reaction.delG_forward.name, reaction.delG_reverse.name])
+            rhs_delG.extend([0, K, 0])
+            sense.extend(["L", "L", "E"])
+
+        lb_conc, lb_formation, ub_conc, ub_formation = ([], [], [], [])
+        for met in self.metabolites:
+            concentration.append(met.concentration_variable.name)
+            formation.append(met.compound_variable.name)
+            lb_conc.append(met.concentration_variable.lb)
+            ub_conc.append(met.concentration_variable.ub)
+            lb_formation.append(met.compound_variable.lb)
+            ub_formation.append(met.compound_variable.ub)
+
+        var_names = rxn_var + indicators + delGr + concentration + formation
+
+        lhs = np.concatenate((mass_balance, delG_cons_matrix), axis=0)
+        rhs = rhs_mass_bal + rhs_delG
+        cons_sense = sense_mass_bal + sense
+        lb = (
+            [-1000] * rxn_tot
+            + [0] * n_core_rxns
+            + [-1e5] * n_core_rxns
+            + lb_conc
+            + lb_formation
         )
-        delG_matrix = np.concatenate(
-            (
-                np.zeros((n, n)),
-                np.zeros((n, y)),
-                np.zeros((n, n)),
-                np.eye(n),
-                -RT * S.T,
-                -S.T @ self.cholskey_matrix,
-            ),
-            axis=1,
-        )
-
-        lhs_matrix = np.concatenate(
-            (mass_matrix, flux_indicator, delG_indicator_matrix, delG_matrix), axis=0
-        )
-
-        delG_rhs = []
-        for rxn in core_rxn:
-            delG_rhs.extend([rxn.calculate_rxn_delG(), -1 * rxn.calculate_rxn_delG()])
-
-        rhs_matrix = []
-
-        rhs_matrix.extend([0] * (m + n))
-        rhs_matrix.extend([K] * n)
-        rhs_matrix.extend(delG_rhs)
-        rhs_matrix = np.array(rhs_matrix)
-
-        core_rxn_ids = [rxn.id for rxn in core_rxn]
-
-        binaries = []
-        delGs = []
-        flux_var = []
-        for rxn_id in core_rxn_ids:
-            flux_var.append(rxn_id)
-            binaries.append(rxn_id + "_bi")
-            delGs.append("delG_" + rxn_id)
-            flux_var.append(rxn_id + "_rev")
-            binaries.append(rxn_id + "_rev_bi")
-            delGs.append("delG_" + rxn_id + "_rev")
-
-        log_var = []
-        sig_var = []
-        for metid in self.metabolites:
-            log_var.append("log_" + metid.id)
-            sig_var.append("z_f_" + metid.id)
-        var_list = (
-            flux_var + self.Exclude_reactions + binaries + delGs + log_var + sig_var
-        )
-
-        core_flux_bounds_lb = []
-        core_flux_bounds_ub = []
-        for rxn in core_rxn:
-            core_flux_bounds_lb.extend([rxn.lower_bound, -rxn.upper_bound])
-            core_flux_bounds_ub.extend([rxn.upper_bound, -rxn.lower_bound])
-
-        exclude_lb = []
-        exclude_ub = []
-        for rxn_id in self.Exclude_reactions:
-            rxn = self.reactions.get_by_id(rxn_id)
-            exclude_lb.append(rxn.lower_bound)
-            exclude_ub.append(rxn.upper_bound)
-
-        lower_bounds = (
-            core_flux_bounds_lb
-            + exclude_lb
-            + [0] * n
-            + [-1000] * n
-            + [1e-5] * m
-            + [-1.96] * m
-        )
-        upper_bounds = (
-            core_flux_bounds_ub
-            + exclude_ub
-            + [1] * n
-            + [1000] * n
-            + [0.01] * m
-            + [1.96] * m
+        ub = (
+            [1000] * rxn_tot
+            + [1] * n_core_rxns
+            + [1e5] * n_core_rxns
+            + ub_conc
+            + ub_formation
         )
 
-        return (
-            lhs_matrix,
-            rhs_matrix,
-            var_list,
-            np.array(lower_bounds),
-            np.array(upper_bounds),
-        )
+        return (lhs, rhs, var_names, np.array(lb), np.array(ub), cons_sense)
+
