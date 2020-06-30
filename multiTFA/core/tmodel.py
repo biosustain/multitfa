@@ -281,7 +281,7 @@ class tmodel(Model):
             if rxn.id in self.Exclude_reactions:
                 continue
 
-            # Direactionality constraint
+            # Directionality constraint
             dir_f, dir_r = directionality(rxn)
             ind_f, ind_r = delG_indicator(rxn)
 
@@ -291,7 +291,7 @@ class tmodel(Model):
 
             lhs_forward = rxn.delG_forward - RT * concentration_term - met_term
             lhs_reverse = rxn.delG_reverse + RT * concentration_term + met_term
-            rhs = rxn.delG_transform
+            rhs = rxn.transport_delG + rxn.transform
 
             delG_f = self.problem.Constraint(
                 lhs_forward,
