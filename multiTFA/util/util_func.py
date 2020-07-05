@@ -1,6 +1,8 @@
 import numpy as np
 from .posdef import isPD, nearestPD
 from collections import OrderedDict
+from six import iteritems
+from .thermo_constants import RT
 
 
 def cov2corr(covariance):
@@ -106,3 +108,38 @@ def findcorrelatedmets(covariance, metabolites):
     new_cov = new_cov[new_ellipsoid_ind, :]
 
     return (old_ellipse_mets, new_ellipse_mets, old_cov, new_cov)
+
+
+def Exclude_quadratic(model):
+
+    big_var_rxn = []
+    for rxn in model.reactions:
+        if rxn.id in model.Exclude_reactions:
+            continue
+        lb_conc, ub_conc, lb_form, ub_form = (0, 0, 0, 0)
+        for met, stoic in iteritems(rxn.metabolites):
+            if met.Kegg_id in ["C00080", "cpd00067"]:
+                continue
+            if stoic < 0:
+                lb_conc += stoic * met.concentration_variable.ub
+                ub_conc += stoic * met.concentration_variable.lb
+                lb_form += stoic * met.compound_variable.lb
+                ub_form += stoic * met.compound_variable.ub
+            else:
+                lb_conc += stoic * met.concentration_variable.lb
+                ub_conc += stoic * met.concentration_variable.ub
+                lb_form += stoic * met.compound_variable.lb
+                ub_form += stoic * met.compound_variable.ub
+
+        lb_delG_rxn = RT * lb_conc + lb_form + rxn.transport_delG + rxn.transform
+        ub_delG_rxn = RT * ub_conc + ub_form + rxn.transport_delG + rxn.transform
+
+        if abs(lb_delG_rxn - ub_delG_rxn) > 5000:
+            big_var_rxn.append(rxn)
+
+    high_var_mets = []
+    for reaction in big_var_rxn:
+        for metabolite in reaction.metabolites:
+            if metabolite.std_dev > 50:
+                high_var_mets.append(metabolite.id)
+    return list(set(high_var_mets))

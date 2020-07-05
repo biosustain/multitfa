@@ -63,8 +63,8 @@ def metabolite_variables(metabolite):
             lb_met = -100
             ub_met = 100
         else:
-            lb_met = metabolite.delG_f - 1.96 * metabolite.std_dev
-            ub_met = metabolite.delG_f + 1.96 * metabolite.std_dev
+            lb_met = -1.96 * metabolite.std_dev
+            ub_met = 1.96 * metabolite.std_dev
 
         met_variable = metabolite.model.problem.Variable(
             "met_{}".format(metabolite.id), lb=lb_met, ub=ub_met
@@ -195,13 +195,18 @@ def quad_constraint(covar, mets, met_var_dict):
         nearPD = covar
     inv_cov = np.linalg.inv(nearPD)
 
+    if not isPD(inv_cov):
+        inv_cov_pd = nearestPD(inv_cov)
+    else:
+        inv_cov_pd = inv_cov
+
     chi_crit_val = chi2.isf(q=0.05, df=len(covar))  # Chi square
     met_var = [met_var_dict[met.id] for met in mets]
-    centroids = [met.delG_f for met in mets]
-    lhs_vars = np.array(met_var) - np.array(centroids)
+    # centroids = [met.delG_f for met in mets]
+    lhs_vars = np.array(met_var)  # - np.array(centroids)
     lhs_vars = lhs_vars[:, np.newaxis]
 
-    pre_lhs = lhs_vars.T @ inv_cov @ lhs_vars
+    pre_lhs = lhs_vars.T @ inv_cov_pd @ lhs_vars
     lhs = pre_lhs[0]
 
     return lhs[0], chi_crit_val

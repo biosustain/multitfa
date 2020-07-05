@@ -13,6 +13,8 @@ from ..util.constraints import (
 )
 from copy import deepcopy, copy
 from ..util.dGf_calculation import calculate_dGf, cholesky_decomposition
+from ..util.posdef import isPD, nearestPD
+from ..util.util_func import Exclude_quadratic
 from .compound import Thermo_met
 from warnings import warn
 from six import iteritems
@@ -137,7 +139,8 @@ class tmodel(Model):
             return self._gurobi_interface
         except AttributeError:
             if self.solver.__class__.__module__ == "optlang.gurobi_interface":
-                self._gurobi_interface = self.solver.problem.copy()
+                # self._gurobi_interface = self.solver.problem.copy()
+                self._gurobi_interface = self.Quadratic_constraint()
                 return self._gurobi_interface
             else:
                 self._gurobi_interface = None
@@ -291,7 +294,7 @@ class tmodel(Model):
 
             lhs_forward = rxn.delG_forward - RT * concentration_term - met_term
             lhs_reverse = rxn.delG_reverse + RT * concentration_term + met_term
-            rhs = rxn.transport_delG + rxn.transform
+            rhs = rxn.delG_transform
 
             delG_f = self.problem.Constraint(
                 lhs_forward,
@@ -401,9 +404,10 @@ class tmodel(Model):
         :rtype: [type]
         """
         if self.solver.__class__.__module__ == "optlang.gurobi_interface":
+            solver_interface = self.solver.problem.copy()
             # Get metabolite variable from gurobi interface
             metid_vars_dict = {}
-            for var in self.gurobi_interface.getVars():
+            for var in solver_interface.getVars():
                 if var.VarName.startswith("met_"):
                     metid_vars_dict[var.VarName[4:]] = var
 
@@ -417,9 +421,13 @@ class tmodel(Model):
 
         # Problem metabolites, if met.delGf == 0 or cholesky row is zeros then delete them
         delete_met, cov_mets, cov_met_inds = [], [], []
+        # Identify problematic high variance metabolites
+        high_var_delete_met = Exclude_quadratic(self)
 
         for met in self.metabolites:
             if met.delG_f == 0 or np.isnan(met.delG_f):
+                delete_met.append(met)
+            elif met.id in high_var_delete_met:
                 delete_met.append(met)
             else:
                 cov_met_inds.append(self.metabolites.index(met))
@@ -428,7 +436,7 @@ class tmodel(Model):
         # Pick indices of non zero non nan metabolites
         cov_dG = self.cov_dG[:, cov_met_inds]
         cov_dg = cov_dG[cov_met_inds, :]
-
+        # cov_dg_pd = nearestPD(cov_dg)
         lhs, rhs = quad_constraint(
             cov_dg, cov_mets, metid_vars_dict
         )  # Calculate lhs, rhs for quadratic constraints
@@ -440,11 +448,53 @@ class tmodel(Model):
             for met in self.metabolites:
                 if met in delete_met:
                     continue
-                metid_vars_dict[met.id].LB = met.delG_f - bounds[cov_mets.index(met)]
-                metid_vars_dict[met.id].UB = met.delG_f + bounds[cov_mets.index(met)]
+                metid_vars_dict[met.id].LB = -bounds[cov_mets.index(met)]
+                metid_vars_dict[met.id].UB = bounds[cov_mets.index(met)]
 
-            self.gurobi_interface.addConstr(lhs <= rhs, "Quadratic_cons")
-            self.gurobi_interface.update()
+            solver_interface.addQConstr(lhs <= rhs, "Quadratic_cons")
+            solver_interface.update()
+
+            for rxn in self.reactions:
+                if rxn.id in self.Exclude_reactions:
+                    continue
+
+                lb_form, ub_form, lb_conc, ub_conc = (0, 0, 0, 0)
+                for metabolite, stoic in iteritems(rxn.metabolites):
+                    if metabolite.Kegg_id in ["C00080", "cpd00067"]:
+                        continue
+                    form_var = solver_interface.getVarByName(
+                        "met_{}".format(metabolite.id)
+                    )
+                    conc_var = solver_interface.getVarByName(
+                        "lnc_{}".format(metabolite.id)
+                    )
+                    if stoic < 0:
+                        lb_conc += stoic * conc_var.UB
+                        ub_conc += stoic * conc_var.LB
+                        lb_form += stoic * form_var.LB
+                        ub_form += stoic * form_var.UB
+                    else:
+                        lb_conc += stoic * conc_var.LB
+                        ub_conc += stoic * conc_var.UB
+                        lb_form += stoic * form_var.LB
+                        ub_form += stoic * form_var.UB
+
+                lb_delG_rxn = RT * lb_conc + lb_form + rxn.delG_transform
+                ub_delG_rxn = RT * ub_conc + ub_form + rxn.delG_transform
+
+                rxn_delG_for = solver_interface.getVarByName(
+                    "dG_{}".format(rxn.forward_variable.name)
+                )
+                rxn_delG_rev = solver_interface.getVarByName(
+                    "dG_{}".format(rxn.reverse_variable.name)
+                )
+                rxn_delG_for.LB = lb_delG_rxn
+                rxn_delG_rev.LB = -ub_delG_rxn
+                rxn_delG_for.UB = ub_delG_rxn
+                rxn_delG_rev.UB = -lb_delG_rxn
+                solver_interface.update()
+
+            return solver_interface
 
         elif self.solver.__class__.__module__ == "optlang.cplex_interface":
             pass

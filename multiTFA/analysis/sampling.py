@@ -70,13 +70,12 @@ def cutoff_sampling(
             metabolite.compound_variable.lb = -1000
             metabolite.compound_variable.ub = 1000
 
-            metabolite.compound_variable.lb = (
-                metabolite.delG_f + formation_sample[model.metabolits.index(metabolite)]
-            )
-            metabolite.compound_variable.ub = (
-                metabolite.delG_f
-                + formation_sample[model.metabolites.index(metabolite)]
-            )
+            metabolite.compound_variable.lb = formation_sample[
+                model.metabolits.index(metabolite)
+            ]
+            metabolite.compound_variable.ub = formation_sample[
+                model.metabolites.index(metabolite)
+            ]
 
         tva_ranges = variability(model, variable_list=variables)
         if tva_ranges.empty or tva_ranges.isnull().all()["maximum"]:
@@ -161,14 +160,12 @@ def gev_sampling(
             metabolite.compound_variable.lb = -1000
             metabolite.compound_variable.ub = 1000
 
-            metabolite.compound_variable.lb = (
-                metabolite.delG_f
-                + formation_sample[model.metabolites.index(metabolite)]
-            )
-            metabolite.compound_variable.ub = (
-                metabolite.delG_f
-                + formation_sample[model.metabolites.index(metabolite)]
-            )
+            metabolite.compound_variable.lb = formation_sample[
+                model.metabolites.index(metabolite)
+            ]
+            metabolite.compound_variable.ub = formation_sample[
+                model.metabolites.index(metabolite)
+            ]
 
         tva_ranges = variability(model, variable_list=variables)
 
