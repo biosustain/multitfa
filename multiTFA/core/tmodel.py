@@ -128,10 +128,13 @@ class tmodel(Model):
         Returns:
             np.ndarray 
         """
-        std_dg, cov_dg = calculate_dGf(self.metabolites, self.Kegg_map)
-        chol_matrix = cholesky_decomposition(std_dg, cov_dg)
+        try:
+            return self._cholskey_matrix
+        except AttributeError:
+            std_dg, cov_dg = calculate_dGf(self.metabolites, self.Kegg_map)
+            self._cholskey_matrix = cholesky_decomposition(std_dg, cov_dg)
 
-        return chol_matrix
+            return self._cholskey_matrix
 
     @property
     def gurobi_interface(self):
@@ -403,32 +406,16 @@ class tmodel(Model):
         :return: [description]
         :rtype: [type]
         """
-        if self.solver.__class__.__module__ == "optlang.gurobi_interface":
-            solver_interface = self.solver.problem.copy()
-            # Get metabolite variable from gurobi interface
-            metid_vars_dict = {}
-            for var in solver_interface.getVars():
-                if var.VarName.startswith("met_"):
-                    metid_vars_dict[var.VarName[4:]] = var
-
-        elif self.solver.__class__.__module__ == "optlang.cplex_interface":
-            pass
-
-        else:
-            raise NotImplementedError(
-                "Current solver does not support quadratic constraints, please use Gurobi or Cplex"
-            )
-
         # Problem metabolites, if met.delGf == 0 or cholesky row is zeros then delete them
         delete_met, cov_mets, cov_met_inds = [], [], []
         # Identify problematic high variance metabolites
         high_var_delete_met = Exclude_quadratic(self)
 
         for met in self.metabolites:
-            if met.delG_f == 0 or np.isnan(met.delG_f):
+            if met.delG_f == 0 or np.isnan(met.delG_f) or met.std_dev > 50:
                 delete_met.append(met)
-            elif met.id in high_var_delete_met:
-                delete_met.append(met)
+            # elif met.id in high_var_delete_met:
+            #    delete_met.append(met)
             else:
                 cov_met_inds.append(self.metabolites.index(met))
                 cov_mets.append(met)
@@ -437,14 +424,27 @@ class tmodel(Model):
         cov_dG = self.cov_dG[:, cov_met_inds]
         cov_dg = cov_dG[cov_met_inds, :]
         # cov_dg_pd = nearestPD(cov_dg)
-        lhs, rhs = quad_constraint(
-            cov_dg, cov_mets, metid_vars_dict
-        )  # Calculate lhs, rhs for quadratic constraints
+
+        cov_rxns = []
+        for met in cov_mets:
+            cov_rxns.append(met.reactions)
+        cov_rxns = frozenset.union(*cov_rxns)
 
         # Calculate ellipsoid box bounds and set to variables
         bounds = bounds_ellipsoid(cov_dg)  # Check for posdef cov_dg
 
         if self.solver.__class__.__module__ == "optlang.gurobi_interface":
+            solver_interface = self.solver.problem.copy()
+            # Get metabolite variable from gurobi interface
+            metid_vars_dict = {}
+            for var in solver_interface.getVars():
+                if var.VarName.startswith("met_"):
+                    metid_vars_dict[var.VarName[4:]] = var
+
+            lhs, rhs = quad_constraint(
+                cov_dg, cov_mets, metid_vars_dict
+            )  # Calculate lhs, rhs for quadratic constraints
+
             for met in self.metabolites:
                 if met in delete_met:
                     continue
@@ -453,8 +453,8 @@ class tmodel(Model):
 
             solver_interface.addQConstr(lhs <= rhs, "Quadratic_cons")
             solver_interface.update()
-
-            for rxn in self.reactions:
+            """
+            for rxn in cov_rxns:
                 if rxn.id in self.Exclude_reactions:
                     continue
 
@@ -493,7 +493,7 @@ class tmodel(Model):
                 rxn_delG_for.UB = ub_delG_rxn
                 rxn_delG_rev.UB = -lb_delG_rxn
                 solver_interface.update()
-
+            """
             return solver_interface
 
         elif self.solver.__class__.__module__ == "optlang.cplex_interface":
