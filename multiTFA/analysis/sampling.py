@@ -9,6 +9,7 @@ from .variability import variability
 from pandas import DataFrame, Series, concat
 import numpy as np
 from warnings import warn
+from copy import deepcopy
 
 
 def cutoff_sampling(
@@ -36,7 +37,7 @@ def cutoff_sampling(
 
     if min_growth:
         if model.solver.objective.direction == "max":
-            fva_old_objective = model.problem.variable(
+            fva_old_objective = model.problem.Variable(
                 "fva_old_objective", lb=fraction_of_optim * model.solver.objective.value
             )
         else:
@@ -71,7 +72,7 @@ def cutoff_sampling(
             metabolite.compound_variable.ub = 1000
 
             metabolite.compound_variable.lb = formation_sample[
-                model.metabolits.index(metabolite)
+                model.metabolites.index(metabolite)
             ]
             metabolite.compound_variable.ub = formation_sample[
                 model.metabolites.index(metabolite)
@@ -120,7 +121,7 @@ def gev_sampling(
 
     if min_growth:
         if model.solver.objective.direction == "max":
-            fva_old_objective = model.problem.variable(
+            fva_old_objective = model.problem.Variable(
                 "fva_old_objective", lb=fraction_of_optim * model.solver.objective.value
             )
         else:
@@ -217,3 +218,61 @@ def sampling(
             fraction_of_optim=fraction_of_optim,
         )
     return var_ranges
+
+
+def generate_valid_sample(model, min_growth=False, fraction_of_optim=0.9):
+
+    model_copy = deepcopy(model)
+    model_copy.slim_optimize()
+    if np.isnan(model_copy.slim_optimize()):
+        raise ValueError("infeasible model")
+
+    if min_growth:
+        if model_copy.solver.objective.direction == "max":
+            fva_old_objective = model_copy.problem.Variable(
+                "fva_old_objective",
+                lb=fraction_of_optim * model_copy.solver.objective.value,
+            )
+        else:
+            fva_old_objective = model_copy.problem.Variable(
+                "fva_old_objective",
+                ub=fraction_of_optim * model_copy.solver.objective.value,
+            )
+        # Add the minimal growth/production constraint
+        fva_old_obj_constraint = model_copy.problem.Constraint(
+            model_copy.solver.objective.expression - fva_old_objective,
+            lb=0,
+            ub=0,
+            name="fva_old_objective_constraint",
+        )
+
+        model_copy.add_cons_vars([fva_old_obj_constraint, fva_old_objective])
+
+    while True:
+
+        # Sample for formation energy covariance ellipsoid
+        formation_sample = generate_ellipsoid_sample(model_copy.cholskey_matrix)
+
+        # Fix the formation energy variable lb, ub to sampled formation energy
+        for metabolite in model_copy.metabolites:
+            if metabolite.std_dev > 50:
+                continue
+            # To avoid lb > ub fix them to larger bounds
+            metabolite.compound_variable.lb = -1e9
+            metabolite.compound_variable.ub = 1e9
+
+            metabolite.compound_variable.lb = formation_sample[
+                model_copy.metabolites.index(metabolite)
+            ]
+            metabolite.compound_variable.ub = formation_sample[
+                model_copy.metabolites.index(metabolite)
+            ]
+        print(model_copy.slim_optimize())
+        warm_start = {}
+        if not np.isnan(model_copy.slim_optimize()):
+            break
+
+    for var in model_copy.variables:
+        warm_start[var.name] = model_copy.solver.primal_values[var.name]
+
+    return warm_start
