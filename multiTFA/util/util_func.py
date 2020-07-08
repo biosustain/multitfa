@@ -143,3 +143,48 @@ def Exclude_quadratic(model):
             if metabolite.std_dev > 50:
                 high_var_mets.append(metabolite.id)
     return list(set(high_var_mets))
+
+
+def correlated_pairs(model):
+
+    stdevs = np.sqrt(np.diag(model.cov_dG))
+    high_var_met_inds = np.where(stdevs > 10)[0]
+
+    high_var_mets = []
+    for ind in high_var_met_inds:
+        high_var_mets.append(model.metabolites[ind])
+    high_var_rxns = []
+    for met in high_var_mets:
+        high_var_rxns.append(met.reactions)
+    high_var_rxns = frozenset.union(*high_var_rxns)
+    print(len(high_var_rxns))
+
+    big_var_rxn_int = {}
+    not_int = {}
+    for rxn in high_var_rxns:
+        if rxn.id in model.Exclude_reactions:
+            continue
+        lb_conc, ub_conc, lb_form, ub_form = (0, 0, 0, 0)
+        for met, stoic in iteritems(rxn.metabolites):
+            if met.Kegg_id in ["C00080", "cpd00067"]:
+                continue
+            if stoic < 0:
+                lb_conc += stoic * met.concentration_variable.ub
+                ub_conc += stoic * met.concentration_variable.lb
+                lb_form += stoic * met.compound_variable.lb
+                ub_form += stoic * met.compound_variable.ub
+            else:
+                lb_conc += stoic * met.concentration_variable.lb
+                ub_conc += stoic * met.concentration_variable.ub
+                lb_form += stoic * met.compound_variable.lb
+                ub_form += stoic * met.compound_variable.ub
+
+        lb_delG_rxn = RT * lb_conc + lb_form + rxn.transport_delG + rxn.transform
+        ub_delG_rxn = RT * ub_conc + ub_form + rxn.transport_delG + rxn.transform
+
+        if abs(lb_delG_rxn - ub_delG_rxn) < 2000:
+            big_var_rxn_int[rxn] = abs(lb_delG_rxn - ub_delG_rxn)
+        else:
+            not_int[rxn] = abs(lb_delG_rxn - ub_delG_rxn)
+
+    return big_var_rxn_int, not_int
