@@ -14,7 +14,7 @@ from ..util.constraints import (
 from copy import deepcopy, copy
 from ..util.dGf_calculation import calculate_dGf, cholesky_decomposition
 from ..util.posdef import isPD, nearestPD
-from ..util.util_func import Exclude_quadratic
+from ..util.util_func import Exclude_quadratic, correlated_pairs
 from .compound import Thermo_met
 from warnings import warn
 from six import iteritems
@@ -281,6 +281,36 @@ class tmodel(Model):
             List -- List of themrodynamic constraints
         """
 
+        # Add covariance constraint to the correlated metabolite pairs
+        correlated_mets = correlated_pairs(self)
+        for met in correlated_mets:
+            ind_met = self.metabolites.index(met)
+            for i in range(len(correlated_mets[met])):
+                paired_met = list(correlated_mets[met])[i]
+                if met.Kegg_id == paired_met.Kegg_id:
+                    continue
+                ind_paired_met = self.metabolites.index(paired_met)
+                covar_pair = self.cov_dG[ind_met, ind_paired_met]
+                var_difference = (
+                    met.std_dev ** 2 + paired_met.std_dev ** 2 - 2 * covar_pair
+                )
+                constraint_covar_lb = self.problem.Constraint(
+                    met.compound_variable
+                    - paired_met.compound_variable
+                    + 1.96 * np.sqrt(var_difference),
+                    lb=0,
+                    name="covar_{}_{}_lb".format(met.id, paired_met.id),
+                )
+                constraint_covar_ub = self.problem.Constraint(
+                    met.compound_variable
+                    - paired_met.compound_variable
+                    - 1.96 * np.sqrt(var_difference),
+                    ub=0,
+                    name="covar_{}_{}_ub".format(met.id, paired_met.id),
+                )
+                self.add_cons_vars([constraint_covar_lb, constraint_covar_ub])
+                # self.problem.update()
+
         rxn_constraints = []
         # Now add reaction variables and generate remaining constraints
         for rxn in self.reactions:
@@ -409,10 +439,9 @@ class tmodel(Model):
         # Problem metabolites, if met.delGf == 0 or cholesky row is zeros then delete them
         delete_met, cov_mets, cov_met_inds = [], [], []
         # Identify problematic high variance metabolites
-        high_var_delete_met = Exclude_quadratic(self)
 
         for met in self.metabolites:
-            if met.delG_f == 0 or np.isnan(met.delG_f) or met.std_dev > 50:
+            if met.delG_f == 0 or np.isnan(met.delG_f) or met.std_dev > 10:
                 delete_met.append(met)
             # elif met.id in high_var_delete_met:
             #    delete_met.append(met)

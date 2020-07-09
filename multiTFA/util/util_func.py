@@ -187,4 +187,14 @@ def correlated_pairs(model):
         else:
             not_int[rxn] = abs(lb_delG_rxn - ub_delG_rxn)
 
-    return big_var_rxn_int, not_int
+    correlated_metabolites = {}
+    for rxn in big_var_rxn_int:
+        correlated_mets = [met for met in rxn.metabolites if met.std_dev > 10]
+        if len(correlated_mets) != 0:
+            for i in range(1, len(correlated_mets)):
+                if correlated_mets[0] in correlated_metabolites:
+                    correlated_metabolites[correlated_mets[0]].add(correlated_mets[i])
+                else:
+                    correlated_metabolites[correlated_mets[0]] = {correlated_mets[i]}
+
+    return correlated_metabolites
