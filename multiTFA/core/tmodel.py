@@ -269,7 +269,7 @@ class tmodel(Model):
 
         return rxn_order, S
 
-    def _generate_constraints(self):
+    def _generate_constraints(self, correlated=None):
         """ Generates thermodynamic constraints for the model. See util/constraints.py for detailed explanation of constraints
 
         Vi - Vmax * Zi <= 0
@@ -280,9 +280,10 @@ class tmodel(Model):
         Returns:
             List -- List of themrodynamic constraints
         """
-
+        if correlated == None:
+            correlated_mets = correlated_pairs(self)
+        """
         # Add covariance constraint to the correlated metabolite pairs
-        correlated_mets = correlated_pairs(self)
         for met in correlated_mets:
             ind_met = self.metabolites.index(met)
             for i in range(len(correlated_mets[met])):
@@ -309,8 +310,7 @@ class tmodel(Model):
                     name="covar_{}_{}_ub".format(met.id, paired_met.id),
                 )
                 self.add_cons_vars([constraint_covar_lb, constraint_covar_ub])
-                # self.problem.update()
-
+        """
         rxn_constraints = []
         # Now add reaction variables and generate remaining constraints
         for rxn in self.reactions:
@@ -327,7 +327,7 @@ class tmodel(Model):
 
             lhs_forward = rxn.delG_forward - RT * concentration_term - met_term
             lhs_reverse = rxn.delG_reverse + RT * concentration_term + met_term
-            rhs = rxn.delG_transform
+            rhs = rxn.transform + rxn.transport_delG
 
             delG_f = self.problem.Constraint(
                 lhs_forward,
@@ -441,7 +441,8 @@ class tmodel(Model):
         # Identify problematic high variance metabolites
 
         for met in self.metabolites:
-            if met.delG_f == 0 or np.isnan(met.delG_f) or met.std_dev > 10:
+            if met.delG_f == 0 or np.isnan(met.delG_f) or met.std_dev > 38:
+                print("std_dev cutoff_{}".format(38))
                 delete_met.append(met)
             # elif met.id in high_var_delete_met:
             #    delete_met.append(met)
@@ -477,52 +478,16 @@ class tmodel(Model):
             for met in self.metabolites:
                 if met in delete_met:
                     continue
-                metid_vars_dict[met.id].LB = -bounds[cov_mets.index(met)]
-                metid_vars_dict[met.id].UB = bounds[cov_mets.index(met)]
+                solver_interface.getVarByName("met_{}".format(met.id)).LB = (
+                    met.delG_f - bounds[cov_mets.index(met)]
+                )
+                solver_interface.getVarByName("met_{}".format(met.id)).UB = (
+                    met.delG_f + bounds[cov_mets.index(met)]
+                )
 
             solver_interface.addQConstr(lhs <= rhs, "Quadratic_cons")
             solver_interface.update()
-            """
-            for rxn in cov_rxns:
-                if rxn.id in self.Exclude_reactions:
-                    continue
 
-                lb_form, ub_form, lb_conc, ub_conc = (0, 0, 0, 0)
-                for metabolite, stoic in iteritems(rxn.metabolites):
-                    if metabolite.Kegg_id in ["C00080", "cpd00067"]:
-                        continue
-                    form_var = solver_interface.getVarByName(
-                        "met_{}".format(metabolite.id)
-                    )
-                    conc_var = solver_interface.getVarByName(
-                        "lnc_{}".format(metabolite.id)
-                    )
-                    if stoic < 0:
-                        lb_conc += stoic * conc_var.UB
-                        ub_conc += stoic * conc_var.LB
-                        lb_form += stoic * form_var.LB
-                        ub_form += stoic * form_var.UB
-                    else:
-                        lb_conc += stoic * conc_var.LB
-                        ub_conc += stoic * conc_var.UB
-                        lb_form += stoic * form_var.LB
-                        ub_form += stoic * form_var.UB
-
-                lb_delG_rxn = RT * lb_conc + lb_form + rxn.delG_transform
-                ub_delG_rxn = RT * ub_conc + ub_form + rxn.delG_transform
-
-                rxn_delG_for = solver_interface.getVarByName(
-                    "dG_{}".format(rxn.forward_variable.name)
-                )
-                rxn_delG_rev = solver_interface.getVarByName(
-                    "dG_{}".format(rxn.reverse_variable.name)
-                )
-                rxn_delG_for.LB = lb_delG_rxn
-                rxn_delG_rev.LB = -ub_delG_rxn
-                rxn_delG_for.UB = ub_delG_rxn
-                rxn_delG_rev.UB = -lb_delG_rxn
-                solver_interface.update()
-            """
             return solver_interface
 
         elif self.solver.__class__.__module__ == "optlang.cplex_interface":

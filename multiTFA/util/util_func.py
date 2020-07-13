@@ -147,54 +147,30 @@ def Exclude_quadratic(model):
 
 def correlated_pairs(model):
 
-    stdevs = np.sqrt(np.diag(model.cov_dG))
-    high_var_met_inds = np.where(stdevs > 10)[0]
+    _, S = model.calculate_S_matrix()
+    forward_rxn_ind = [i for i in range(2 * len(model.reactions)) if i % 2 == 0]
 
-    high_var_mets = []
-    for ind in high_var_met_inds:
-        high_var_mets.append(model.metabolites[ind])
-    high_var_rxns = []
-    for met in high_var_mets:
-        high_var_rxns.append(met.reactions)
-    high_var_rxns = frozenset.union(*high_var_rxns)
-    print(len(high_var_rxns))
+    # forward_S = S[forward_rxn_ind, :]
+    forward_S = S[:, forward_rxn_ind]
 
-    big_var_rxn_int = {}
-    not_int = {}
-    for rxn in high_var_rxns:
-        if rxn.id in model.Exclude_reactions:
+    correlation_mat = np.corrcoef(forward_S)
+    # Replace diagonal with zeros to avoid self correlation
+    diag_zero = np.zeros((len(correlation_mat)))
+    row, col = np.diag_indices(correlation_mat.shape[0])
+    correlation_mat[row, col] = diag_zero
+
+    correlated_pair = {}
+    for i in range(len(correlation_mat)):
+        if model.metabolites[i].delG_f == 0 or np.isnan(model.metabolites[i].delG_f):
             continue
-        lb_conc, ub_conc, lb_form, ub_form = (0, 0, 0, 0)
-        for met, stoic in iteritems(rxn.metabolites):
-            if met.Kegg_id in ["C00080", "cpd00067"]:
-                continue
-            if stoic < 0:
-                lb_conc += stoic * met.concentration_variable.ub
-                ub_conc += stoic * met.concentration_variable.lb
-                lb_form += stoic * met.compound_variable.lb
-                ub_form += stoic * met.compound_variable.ub
-            else:
-                lb_conc += stoic * met.concentration_variable.lb
-                ub_conc += stoic * met.concentration_variable.ub
-                lb_form += stoic * met.compound_variable.lb
-                ub_form += stoic * met.compound_variable.ub
+        # Find very highly correlated metabolites
+        correlated_ind = np.where(
+            np.logical_or(correlation_mat[i, :] > 0.95, correlation_mat[i, :] < -0.95)
+        )
+        if len(correlated_ind[0]) > 0:
+            correlated_pair[model.metabolites[i]] = []
+            for ele in correlated_ind[0]:
+                correlated_pair[model.metabolites[i]].append(model.metabolites[ele])
 
-        lb_delG_rxn = RT * lb_conc + lb_form + rxn.transport_delG + rxn.transform
-        ub_delG_rxn = RT * ub_conc + ub_form + rxn.transport_delG + rxn.transform
+    return correlated_pair
 
-        if abs(lb_delG_rxn - ub_delG_rxn) < 2000:
-            big_var_rxn_int[rxn] = abs(lb_delG_rxn - ub_delG_rxn)
-        else:
-            not_int[rxn] = abs(lb_delG_rxn - ub_delG_rxn)
-
-    correlated_metabolites = {}
-    for rxn in big_var_rxn_int:
-        correlated_mets = [met for met in rxn.metabolites if met.std_dev > 10]
-        if len(correlated_mets) != 0:
-            for i in range(1, len(correlated_mets)):
-                if correlated_mets[0] in correlated_metabolites:
-                    correlated_metabolites[correlated_mets[0]].add(correlated_mets[i])
-                else:
-                    correlated_metabolites[correlated_mets[0]] = {correlated_mets[i]}
-
-    return correlated_metabolites
