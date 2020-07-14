@@ -1,5 +1,6 @@
 import numpy as np
 from pandas import DataFrame, Series, option_context
+from copy import deepcopy, copy
 
 
 def variability(model, variable_list=None, min_growth=False, fraction_of_optim=0.9):
@@ -87,9 +88,13 @@ from gurobipy import *
 
 
 def variability_legacy_gurobi(
-    model, variable_list=None, min_growth=False, fraction_of_optim=0.9, warm_start={}
+    model_variability,
+    variable_list=None,
+    min_growth=False,
+    fraction_of_optim=0.9,
+    warm_start={},
 ):
-
+    model = copy(model_variability)
     if variable_list == None:
         variables = model.gurobi_interface.getVars()
     else:
@@ -107,12 +112,12 @@ def variability_legacy_gurobi(
     if min_growth:
         if model.solver.objective.direction == "max":
             fva_old_objective = model.gurobi_interface.addVar(
-                "fva_old_objective",
+                name="fva_old_objective",
                 lb=fraction_of_optim * model.gurobi_interface.ObjVal,
             )
         else:
             fva_old_objective = model.gurobi_interface.addVar(
-                "fva_old_objective",
+                name="fva_old_objective",
                 ub=fraction_of_optim * model.gurobi_interface.ObjVal,
             )
 
@@ -120,8 +125,8 @@ def variability_legacy_gurobi(
         old_obj = model.gurobi_interface.getObjective()
         model.gurobi_interface.addConstr(
             old_obj - fva_old_objective,
-            lb=0,
-            ub=0,
+            GRB.EQUAL,
+            0,
             name="fva_old_objective_constraint",
         )
 
@@ -134,6 +139,7 @@ def variability_legacy_gurobi(
     rxn_ids = [rxn.id for rxn in model.reactions]
 
     for i in range(len(variables)):
+        print(variables[i])
         # if the variable is reactions optimize for forward - reverse variables else optimize for the variable
         if variables[i] in rxn_ids:
             rxn = model.reactions.get_by_id(variables[i])

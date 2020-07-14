@@ -441,11 +441,8 @@ class tmodel(Model):
         # Identify problematic high variance metabolites
 
         for met in self.metabolites:
-            if met.delG_f == 0 or np.isnan(met.delG_f) or met.std_dev > 38:
-                print("std_dev cutoff_{}".format(38))
+            if met.delG_f == 0 or np.isnan(met.delG_f) or met.std_dev > 50:
                 delete_met.append(met)
-            # elif met.id in high_var_delete_met:
-            #    delete_met.append(met)
             else:
                 cov_met_inds.append(self.metabolites.index(met))
                 cov_mets.append(met)
@@ -453,7 +450,6 @@ class tmodel(Model):
         # Pick indices of non zero non nan metabolites
         cov_dG = self.cov_dG[:, cov_met_inds]
         cov_dg = cov_dG[cov_met_inds, :]
-        # cov_dg_pd = nearestPD(cov_dg)
 
         cov_rxns = []
         for met in cov_mets:

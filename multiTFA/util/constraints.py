@@ -2,6 +2,7 @@ from six import iteritems
 import numpy as np
 from .thermo_constants import Vmax, RT, K
 from scipy.stats import chi2
+from scipy import linalg
 from .posdef import nearestPD, isPD
 from .util_func import findcorrelatedmets
 
@@ -193,7 +194,7 @@ def quad_constraint(covar, mets, met_var_dict):
         nearPD = nearestPD(covar)
     else:
         nearPD = covar
-    inv_cov = np.linalg.inv(nearPD)
+    inv_cov = linalg.inv(nearPD)
 
     if not isPD(inv_cov):
         inv_cov_pd = nearestPD(inv_cov)
@@ -226,7 +227,7 @@ def bounds_ellipsoid(covariance):
 
     # First calculate the half lengths of ellipsoid
     chi2_value = chi2.isf(q=0.05, df=len(covariance))
-    eig_val, eig_vec = np.linalg.eig(covariance)
+    eig_val, eig_vec = linalg.eig(covariance)
     half_len = np.sqrt(chi2_value * eig_val)
 
     # Calculate unit eigen vectors and UB in various axis for formation energies

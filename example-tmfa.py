@@ -31,71 +31,24 @@ conc_dict = {
 t_model = tmodel.tmodel(
     model=model,
     Kegg_map=Kegg_map,
-    pH_I_T_dict=pH_I_T_dict,
+    pH_I_dict=pH_I_T_dict,
     del_psi_dict=del_psi_dict,
     Exclude_list=Excl,
     concentration_dict=conc_dict,
 )
 
-from multiTFA.util import constraints, util_func
+t_model.slim_optimize()
 
-solver_interface = constraints.MIQP(t_model)
-# Generate warm start with expanded box bounds
-solver_interface.optimize()
-start_dict = {}
-for var in solver_interface.getVars():
-    if var.VarName.startswith("indicator_"):
-        start_dict[var] = var.x
-print("box optimization complete")
+warm_start = {}
+for var in t_model.variables:
+    if var.name.startswith("indicator"):
+        warm_start[var.name] = t_model.solver.primal_values[var.name]
 
-# Generate metid_vars dict
-metid_vars_dict = {}
-for var in solver_interface.getVars():
-    if var.VarName.startswith("met_"):
-        metid_vars_dict[var.VarName[4:]] = var
+for var in t_model.gurobi_interface.getVars():
+    if var.VarName in warm_start:
+        var.Start = warm_start[var.VarName]
+t_model.gurobi_interface.params.OutputFlag = 1
 
-old_ellipse_mets, new_ellipse_mets, old_cov, new_cov = util_func.findcorrelatedmets(
-    t_model.cov_dG, t_model.metabolites
-)
+t_model.gurobi_interface.optimize()
 
-old_lhs, old_rhs = constraints.quad_constraint(
-    old_cov, old_ellipse_mets, metid_vars_dict
-)
-print("ellipse_constraints calculated")
-
-for var in solver_interface.getVars():
-    if var in start_dict:
-        var.Start = start_dict[var]
-
-# Now add old_ellipse_constraint
-solver_interface.addQConstr(old_lhs <= old_rhs, "old_ellipse")
-solver_interface.update()
-solver_interface.write("codel.lp")
-print("optimization started")
-start = time.time()
-solver_interface.optimize()
-end = time.time()
-print(end - start)
-print(solver_interface.status)
-print(solver_interface.ObjVal)
-
-from multiTFA.analysis import variability_legacy
-
-ranges = variability_legacy(t_model, solver_interface, 0.9)
-print(ranges)
-"""
-
-from analysis import variability
-
-rxn_ids = [i.id for i in t_model.reactions]
-delgs = [var.name for var in t_model.solver.variables if "G_r_" in var.name]
-conc_var = [var.name for var in t_model.solver.variables if "lnc_" in var.name]
-vars_analysis = conc_var
-
-ranges_vars = variability.variability(
-    t_model, fraction_of_optim=0.9, variable_list=vars_analysis
-)
-
-for index, ele in ranges_vars.iterrows():
-    print(index, ele["minimum"], ele["maximum"])
-"""
+print(t_model.gurobi_interface.ObjVal)
