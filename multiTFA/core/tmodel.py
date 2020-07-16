@@ -224,7 +224,7 @@ class tmodel(Model):
         Reaction delG variable
         Reaction flux indicator variable
         """
-
+        # add formation energy variables w.r.t to kegg ids
         # metabolite concentration, Ci and metabolite variables
         conc_variables = []
         met_variables = []
@@ -474,6 +474,7 @@ class tmodel(Model):
             for met in self.metabolites:
                 if met in delete_met:
                     continue
+                print(met.delG_f, bounds[cov_mets.index(met)])
                 solver_interface.getVarByName("met_{}".format(met.id)).LB = (
                     met.delG_f - bounds[cov_mets.index(met)]
                 )

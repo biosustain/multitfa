@@ -60,17 +60,20 @@ def metabolite_variables(metabolite):
             ub=np.log(metabolite.concentration_max),
         )
 
-        if metabolite.delG_f == 0 or np.isnan(metabolite.delG_f):
-            lb_met = -100
-            ub_met = 100
-        else:
-            lb_met = metabolite.delG_f - 1.96 * metabolite.std_dev
-            ub_met = metabolite.delG_f + 1.96 * metabolite.std_dev
+        return conc_variable
+    else:
+        return None
 
-        met_variable = metabolite.model.problem.Variable(
-            "met_{}".format(metabolite.id), lb=lb_met, ub=ub_met
-        )
-        return conc_variable, met_variable
+
+def formation_variable(model):
+    formation_variables = []
+    if model is not None:
+        for met2dbid in model.kegg2met_dict:
+            formation_var = model.problem.Variable(
+                "met_{}".format(met2dbid), lb=-100, ub=100
+            )
+            formation_variables.append(formation_var)
+        return formation_variables
     else:
         return None
 
@@ -225,9 +228,15 @@ def bounds_ellipsoid(covariance):
     :rtype: [type]
     """
 
+    # Check if covariance is positive definite otherwise we can encounter negative eigne values
+    if not isPD(covariance):
+        covariance_PD = nearestPD(covariance)
+    else:
+        covariance_PD = covariance
+
     # First calculate the half lengths of ellipsoid
-    chi2_value = chi2.isf(q=0.05, df=len(covariance))
-    eig_val, eig_vec = linalg.eig(covariance)
+    chi2_value = chi2.isf(q=0.05, df=len(covariance_PD))
+    eig_val, eig_vec = linalg.eigh(covariance_PD)
     half_len = np.sqrt(chi2_value * eig_val)
 
     # Calculate unit eigen vectors and UB in various axis for formation energies
