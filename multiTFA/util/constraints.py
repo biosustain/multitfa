@@ -60,20 +60,17 @@ def metabolite_variables(metabolite):
             ub=np.log(metabolite.concentration_max),
         )
 
-        return conc_variable
-    else:
-        return None
+        if metabolite.delG_f == 0 or np.isnan(metabolite.delG_f):
+            lb_form = -100
+            ub_form = 100
+        else:
+            lb_form = metabolite.delG_f - 1.96 * metabolite.std_dev
+            ub_form = metabolite.delG_f + 1.96 * metabolite.std_dev
 
-
-def formation_variable(model):
-    formation_variables = []
-    if model is not None:
-        for met2dbid in model.kegg2met_dict:
-            formation_var = model.problem.Variable(
-                "met_{}".format(met2dbid), lb=-100, ub=100
-            )
-            formation_variables.append(formation_var)
-        return formation_variables
+        formation_variable = metabolite.model.problem.Variable(
+            "met_{}".format(metabolite.Kegg_id), lb=lb_form, ub=ub_form
+        )
+        return (conc_variable, formation_variable)
     else:
         return None
 
@@ -205,7 +202,7 @@ def quad_constraint(covar, mets, met_var_dict):
         inv_cov_pd = inv_cov
 
     chi_crit_val = chi2.isf(q=0.05, df=len(covar))  # Chi square
-    met_var = [met_var_dict[met.id] for met in mets]
+    met_var = [met_var_dict[met.Kegg_id] for met in mets]
     centroids = [met.delG_f for met in mets]
     lhs_vars = np.array(met_var) - np.array(centroids)
     lhs_vars = lhs_vars[:, np.newaxis]

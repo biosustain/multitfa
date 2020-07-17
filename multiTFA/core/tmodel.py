@@ -34,6 +34,7 @@ class tmodel(Model):
         concentration_dict={"min": {}, "max": {}},
         tolerance_integral=1e-9,
         del_psi_dict={},
+        correlated_met_pairs={},
         debug=False,
     ):
         """ Class representation of tMFA model, dependeds on cobra model class.
@@ -118,6 +119,7 @@ class tmodel(Model):
         self.Exclude_reactions = list(
             set(Exclude_list + self.problematic_rxns)
         )  # See if we can make this a cached property
+        self.correlated_met_pairs = correlated_met_pairs
         self.update_thermo_variables()
         self.update()
 
@@ -204,6 +206,14 @@ class tmodel(Model):
         else:
             return []
 
+    @property
+    def correlated_metabolites(self):
+        try:
+            return self._correlated_metabolites
+        except AttributeError:
+            self._correlated_metabolites = correlated_pairs(self)
+            return self._correlated_metabolites
+
     def covariance_matrix(self):
         """calculates the covariance matrix of Gibbs free energy of the metabolites
         
@@ -228,11 +238,15 @@ class tmodel(Model):
         # metabolite concentration, Ci and metabolite variables
         conc_variables = []
         met_variables = []
+        added_met_var = []
 
         for metabolite in self.metabolites:
             conc_var, met_variable = metabolite_variables(metabolite)
             conc_variables.append(conc_var)
+            if metabolite.Kegg_id in added_met_var:
+                continue
             met_variables.append(met_variable)
+            added_met_var.append(metabolite.Kegg_id)
         self.add_cons_vars(conc_variables + met_variables)
 
         # Now add reaction variables and generate remaining constraints
@@ -269,7 +283,7 @@ class tmodel(Model):
 
         return rxn_order, S
 
-    def _generate_constraints(self, correlated=None):
+    def _generate_constraints(self):
         """ Generates thermodynamic constraints for the model. See util/constraints.py for detailed explanation of constraints
 
         Vi - Vmax * Zi <= 0
@@ -280,37 +294,35 @@ class tmodel(Model):
         Returns:
             List -- List of themrodynamic constraints
         """
-        if correlated == None:
-            correlated_mets = correlated_pairs(self)
-        """
+        # if self.correlated_metabolites == None:
+        correlated_mets = correlated_pairs(self)
+
         # Add covariance constraint to the correlated metabolite pairs
         for met in correlated_mets:
-            ind_met = self.metabolites.index(met)
+            primary_met = self.metabolites.get_by_id(met)
+            ind_met = self.metabolites.index(primary_met)
             for i in range(len(correlated_mets[met])):
-                paired_met = list(correlated_mets[met])[i]
-                if met.Kegg_id == paired_met.Kegg_id:
+                paired_met_id = list(correlated_mets[met])[i]
+                paired_met = self.metabolites.get_by_id(paired_met_id)
+                if primary_met.Kegg_id == paired_met.Kegg_id:
                     continue
                 ind_paired_met = self.metabolites.index(paired_met)
                 covar_pair = self.cov_dG[ind_met, ind_paired_met]
                 var_difference = (
-                    met.std_dev ** 2 + paired_met.std_dev ** 2 - 2 * covar_pair
+                    primary_met.std_dev ** 2 + paired_met.std_dev ** 2 - 2 * covar_pair
                 )
                 constraint_covar_lb = self.problem.Constraint(
-                    met.compound_variable
-                    - paired_met.compound_variable
-                    + 1.96 * np.sqrt(var_difference),
-                    lb=0,
-                    name="covar_{}_{}_lb".format(met.id, paired_met.id),
+                    primary_met.compound_variable - paired_met.compound_variable,
+                    lb=-1.96 * np.sqrt(var_difference),
+                    name="covar_{}_{}_lb".format(primary_met.id, paired_met.id),
                 )
                 constraint_covar_ub = self.problem.Constraint(
-                    met.compound_variable
-                    - paired_met.compound_variable
-                    - 1.96 * np.sqrt(var_difference),
-                    ub=0,
-                    name="covar_{}_{}_ub".format(met.id, paired_met.id),
+                    primary_met.compound_variable - paired_met.compound_variable,
+                    ub=1.96 * np.sqrt(var_difference),
+                    name="covar_{}_{}_ub".format(primary_met.id, paired_met.id),
                 )
                 self.add_cons_vars([constraint_covar_lb, constraint_covar_ub])
-        """
+
         rxn_constraints = []
         # Now add reaction variables and generate remaining constraints
         for rxn in self.reactions:
@@ -437,24 +449,24 @@ class tmodel(Model):
         :rtype: [type]
         """
         # Problem metabolites, if met.delGf == 0 or cholesky row is zeros then delete them
-        delete_met, cov_mets, cov_met_inds = [], [], []
-        # Identify problematic high variance metabolites
+        delete_met, cov_mets, cov_met_inds, non_duplicate = [], [], [], []
 
+        # Identify problematic high variance metabolites
+        #  Find metabolites that are present in different compartments and make sure they get one row/col in covariance matrix
         for met in self.metabolites:
             if met.delG_f == 0 or np.isnan(met.delG_f) or met.std_dev > 50:
                 delete_met.append(met)
             else:
-                cov_met_inds.append(self.metabolites.index(met))
-                cov_mets.append(met)
+                if met.Kegg_id in non_duplicate:
+                    continue
+                else:
+                    cov_met_inds.append(self.metabolites.index(met))
+                    cov_mets.append(met)
+                    non_duplicate.append(met.Kegg_id)
 
         # Pick indices of non zero non nan metabolites
-        cov_dG = self.cov_dG[:, cov_met_inds]
-        cov_dg = cov_dG[cov_met_inds, :]
-
-        cov_rxns = []
-        for met in cov_mets:
-            cov_rxns.append(met.reactions)
-        cov_rxns = frozenset.union(*cov_rxns)
+        cov_dg = self.cov_dG[:, cov_met_inds]
+        cov_dg = cov_dg[cov_met_inds, :]
 
         # Calculate ellipsoid box bounds and set to variables
         bounds = bounds_ellipsoid(cov_dg)  # Check for posdef cov_dg
@@ -470,18 +482,16 @@ class tmodel(Model):
             lhs, rhs = quad_constraint(
                 cov_dg, cov_mets, metid_vars_dict
             )  # Calculate lhs, rhs for quadratic constraints
-
-            for met in self.metabolites:
-                if met in delete_met:
-                    continue
-                print(met.delG_f, bounds[cov_mets.index(met)])
-                solver_interface.getVarByName("met_{}".format(met.id)).LB = (
+            """
+            for met in cov_mets:
+                print(met.Kegg_id, met.delG_f, bounds[cov_mets.index(met)])
+                solver_interface.getVarByName("met_{}".format(met.Kegg_id)).LB = (
                     met.delG_f - bounds[cov_mets.index(met)]
                 )
-                solver_interface.getVarByName("met_{}".format(met.id)).UB = (
+                solver_interface.getVarByName("met_{}".format(met.Kegg_id)).UB = (
                     met.delG_f + bounds[cov_mets.index(met)]
                 )
-
+            """
             solver_interface.addQConstr(lhs <= rhs, "Quadratic_cons")
             solver_interface.update()
 

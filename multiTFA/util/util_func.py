@@ -147,30 +147,45 @@ def Exclude_quadratic(model):
 
 def correlated_pairs(model):
 
-    _, S = model.calculate_S_matrix()
-    forward_rxn_ind = [i for i in range(2 * len(model.reactions)) if i % 2 == 0]
-
-    # forward_S = S[forward_rxn_ind, :]
-    forward_S = S[:, forward_rxn_ind]
-
-    correlation_mat = np.corrcoef(forward_S)
-    # Replace diagonal with zeros to avoid self correlation
-    diag_zero = np.zeros((len(correlation_mat)))
-    row, col = np.diag_indices(correlation_mat.shape[0])
-    correlation_mat[row, col] = diag_zero
-
+    delete_met, cov_mets, cov_met_inds, non_duplicate = [], [], [], []
     correlated_pair = {}
-    for i in range(len(correlation_mat)):
-        if model.metabolites[i].delG_f == 0 or np.isnan(model.metabolites[i].delG_f):
-            continue
-        # Find very highly correlated metabolites
-        correlated_ind = np.where(
-            np.logical_or(correlation_mat[i, :] > 0.95, correlation_mat[i, :] < -0.95)
-        )
-        if len(correlated_ind[0]) > 0:
-            correlated_pair[model.metabolites[i]] = []
-            for ele in correlated_ind[0]:
-                correlated_pair[model.metabolites[i]].append(model.metabolites[ele])
 
-    return correlated_pair
+    #  Find metabolites that are present in different compartments and make sure they get one row/col in covariance matrix
+    for met in model.metabolites:
+        if met.delG_f == 0 or np.isnan(met.delG_f):
+            delete_met.append(met)
+        else:
+            cov_met_inds.append(model.metabolites.index(met))
+            cov_mets.append(met)
+            non_duplicate.append(met.Kegg_id)
+
+    # Pick indices of non zero non nan metabolites
+    cov_dg = model.cov_dG[:, cov_met_inds]
+    cov_dg = cov_dg[cov_met_inds, :]
+
+    correlation_mat = cov2corr(cov_dg)
+
+    for i in range(len(correlation_mat)):
+        correlated_ind = np.where(np.abs(correlation_mat[:, i] > 0.99))[0]
+
+        if len(correlated_ind) > 1:
+            for j in correlated_ind:
+                if j == i:
+                    continue
+                if cov_mets[i].Kegg_id == cov_mets[j].Kegg_id:
+                    continue
+                if cov_mets[i] in correlated_pair:
+                    correlated_pair[cov_mets[i].id].append(cov_mets[j].id)
+                else:
+                    correlated_pair[cov_mets[i].id] = [cov_mets[j].id]
+
+    for key in correlated_pair:
+        for i in range(len(correlated_pair[key])):
+            if correlated_pair[key][i] in correlated_pair:
+                if key in correlated_pair[correlated_pair[key][i]]:
+                    correlated_pair[correlated_pair[key][i]].remove(key)
+
+    correlated_mets = {k: v for k, v in correlated_pair.items() if v}
+
+    return correlated_mets
 
