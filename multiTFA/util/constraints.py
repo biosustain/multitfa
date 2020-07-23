@@ -189,17 +189,7 @@ def quad_constraint(covar, mets, met_var_dict):
         [type] -- [description]
     """
 
-    # Check if is pos-def
-    if not isPD(covar):
-        nearPD = nearestPD(covar)
-    else:
-        nearPD = covar
-    inv_cov = linalg.inv(nearPD)
-
-    if not isPD(inv_cov):
-        inv_cov_pd = nearestPD(inv_cov)
-    else:
-        inv_cov_pd = inv_cov
+    inv_cov = linalg.inv(covar)
 
     chi_crit_val = chi2.isf(q=0.05, df=len(covar))  # Chi square
     met_var = [met_var_dict[met.Kegg_id] for met in mets]
@@ -207,7 +197,7 @@ def quad_constraint(covar, mets, met_var_dict):
     lhs_vars = np.array(met_var) - np.array(centroids)
     lhs_vars = lhs_vars[:, np.newaxis]
 
-    pre_lhs = lhs_vars.T @ inv_cov_pd @ lhs_vars
+    pre_lhs = lhs_vars.T @ inv_cov @ lhs_vars
     lhs = pre_lhs[0]
 
     return lhs[0], chi_crit_val
@@ -225,24 +215,18 @@ def bounds_ellipsoid(covariance):
     :rtype: [type]
     """
 
-    # Check if covariance is positive definite otherwise we can encounter negative eigne values
-    if not isPD(covariance):
-        covariance_PD = nearestPD(covariance)
-    else:
-        covariance_PD = covariance
-
     # First calculate the half lengths of ellipsoid
-    chi2_value = chi2.isf(q=0.05, df=len(covariance_PD))
-    eig_val, eig_vec = linalg.eigh(covariance_PD)
+    chi2_value = chi2.isf(q=0.05, df=len(covariance))
+    eig_val, eig_vec = linalg.eigh(covariance)
     half_len = np.sqrt(chi2_value * eig_val)
 
     # Calculate unit eigen vectors and UB in various axis for formation energies
     bounds_mat = np.zeros((len(covariance), len(covariance)))
 
     for i in range(len(eig_vec)):
-        scaling = np.sqrt(np.sum(np.square(eig_vec[:, i])))
-        unit_vec = eig_vec[:, i] / scaling
-        bounds_mat[:, i] = half_len[i] * unit_vec
+        # scaling = np.sqrt(np.sum(np.square(eig_vec[:, i])))
+        # unit_vec = eig_vec[:, i] / scaling
+        bounds_mat[:, i] = half_len[i] * eig_vec[:, i]
 
     UB = []
     for i in range(len(bounds_mat)):

@@ -22,6 +22,7 @@ from cobra import Model
 from .solution import get_solution, get_legacy_solution
 from cobra.core.dictlist import DictList
 import optlang
+import itertools
 
 
 class tmodel(Model):
@@ -313,12 +314,16 @@ class tmodel(Model):
                 )
                 constraint_covar_lb = self.problem.Constraint(
                     primary_met.compound_variable - paired_met.compound_variable,
-                    lb=-1.96 * np.sqrt(var_difference),
+                    lb=primary_met.delG_f
+                    - paired_met.delG_f
+                    - 1.96 * np.sqrt(var_difference),
                     name="covar_{}_{}_lb".format(primary_met.id, paired_met.id),
                 )
                 constraint_covar_ub = self.problem.Constraint(
                     primary_met.compound_variable - paired_met.compound_variable,
-                    ub=1.96 * np.sqrt(var_difference),
+                    ub=primary_met.delG_f
+                    - paired_met.delG_f
+                    + 1.96 * np.sqrt(var_difference),
                     name="covar_{}_{}_ub".format(primary_met.id, paired_met.id),
                 )
                 self.add_cons_vars([constraint_covar_lb, constraint_covar_ub])
@@ -448,13 +453,22 @@ class tmodel(Model):
         :return: [description]
         :rtype: [type]
         """
+        correlated_mets = correlated_pairs(self)
+        correlated_met_values = list(itertools.chain(*correlated_mets.values()))
+
         # Problem metabolites, if met.delGf == 0 or cholesky row is zeros then delete them
         delete_met, cov_mets, cov_met_inds, non_duplicate = [], [], [], []
 
         # Identify problematic high variance metabolites
         #  Find metabolites that are present in different compartments and make sure they get one row/col in covariance matrix
         for met in self.metabolites:
-            if met.delG_f == 0 or np.isnan(met.delG_f) or met.std_dev > 50:
+            if (
+                met.delG_f == 0
+                or np.isnan(met.delG_f)
+                or met.std_dev > 50
+                or met.id in correlated_met_values
+                or met.id in correlated_mets.keys()
+            ):
                 delete_met.append(met)
             else:
                 if met.Kegg_id in non_duplicate:
@@ -463,7 +477,7 @@ class tmodel(Model):
                     cov_met_inds.append(self.metabolites.index(met))
                     cov_mets.append(met)
                     non_duplicate.append(met.Kegg_id)
-
+        print("stdev 5")
         # Pick indices of non zero non nan metabolites
         cov_dg = self.cov_dG[:, cov_met_inds]
         cov_dg = cov_dg[cov_met_inds, :]
@@ -482,16 +496,16 @@ class tmodel(Model):
             lhs, rhs = quad_constraint(
                 cov_dg, cov_mets, metid_vars_dict
             )  # Calculate lhs, rhs for quadratic constraints
-            """
+            print(len(cov_dg))
             for met in cov_mets:
-                print(met.Kegg_id, met.delG_f, bounds[cov_mets.index(met)])
+                # print(met.Kegg_id, met.delG_f, bounds[cov_mets.index(met)])
                 solver_interface.getVarByName("met_{}".format(met.Kegg_id)).LB = (
-                    met.delG_f - bounds[cov_mets.index(met)]
+                    met.delG_f - 1.2 * bounds[cov_mets.index(met)]
                 )
                 solver_interface.getVarByName("met_{}".format(met.Kegg_id)).UB = (
-                    met.delG_f + bounds[cov_mets.index(met)]
+                    met.delG_f + 1.2 * bounds[cov_mets.index(met)]
                 )
-            """
+
             solver_interface.addQConstr(lhs <= rhs, "Quadratic_cons")
             solver_interface.update()
 
