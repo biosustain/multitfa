@@ -3,3 +3,4 @@ gurobi.log
 tmfa/debug_cauto.py
 .vscode
 __pycache__/
+.vscode/settings.json
