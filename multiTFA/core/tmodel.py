@@ -314,16 +314,12 @@ class tmodel(Model):
                 )
                 constraint_covar_lb = self.problem.Constraint(
                     primary_met.compound_variable - paired_met.compound_variable,
-                    lb=primary_met.delG_f
-                    - paired_met.delG_f
-                    - 1.96 * np.sqrt(var_difference),
+                    lb=-1.96 * np.sqrt(var_difference),
                     name="covar_{}_{}_lb".format(primary_met.id, paired_met.id),
                 )
                 constraint_covar_ub = self.problem.Constraint(
                     primary_met.compound_variable - paired_met.compound_variable,
-                    ub=primary_met.delG_f
-                    - paired_met.delG_f
-                    + 1.96 * np.sqrt(var_difference),
+                    ub=1.96 * np.sqrt(var_difference),
                     name="covar_{}_{}_ub".format(primary_met.id, paired_met.id),
                 )
                 self.add_cons_vars([constraint_covar_lb, constraint_covar_ub])
@@ -344,7 +340,7 @@ class tmodel(Model):
 
             lhs_forward = rxn.delG_forward - RT * concentration_term - met_term
             lhs_reverse = rxn.delG_reverse + RT * concentration_term + met_term
-            rhs = rxn.transform + rxn.transport_delG
+            rhs = rxn.delG_transform
 
             delG_f = self.problem.Constraint(
                 lhs_forward,
@@ -477,7 +473,7 @@ class tmodel(Model):
                     cov_met_inds.append(self.metabolites.index(met))
                     cov_mets.append(met)
                     non_duplicate.append(met.Kegg_id)
-        print("stdev 5")
+
         # Pick indices of non zero non nan metabolites
         cov_dg = self.cov_dG[:, cov_met_inds]
         cov_dg = cov_dg[cov_met_inds, :]
@@ -496,7 +492,7 @@ class tmodel(Model):
             lhs, rhs = quad_constraint(
                 cov_dg, cov_mets, metid_vars_dict
             )  # Calculate lhs, rhs for quadratic constraints
-            print(len(cov_dg))
+
             for met in cov_mets:
                 # print(met.Kegg_id, met.delG_f, bounds[cov_mets.index(met)])
                 solver_interface.getVarByName("met_{}".format(met.Kegg_id)).LB = (

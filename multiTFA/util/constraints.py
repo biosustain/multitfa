@@ -64,8 +64,8 @@ def metabolite_variables(metabolite):
             lb_form = -100
             ub_form = 100
         else:
-            lb_form = metabolite.delG_f - 1.96 * metabolite.std_dev
-            ub_form = metabolite.delG_f + 1.96 * metabolite.std_dev
+            lb_form = -1.96 * metabolite.std_dev
+            ub_form = 1.96 * metabolite.std_dev
 
         formation_variable = metabolite.model.problem.Variable(
             "met_{}".format(metabolite.Kegg_id), lb=lb_form, ub=ub_form
