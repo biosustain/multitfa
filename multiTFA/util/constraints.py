@@ -233,3 +233,4 @@ def bounds_ellipsoid(covariance):
         UB.append(max(bounds_mat[i, :]))
 
     return UB
+

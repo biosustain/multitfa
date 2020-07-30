@@ -14,7 +14,7 @@ from ..util.constraints import (
 from copy import deepcopy, copy
 from ..util.dGf_calculation import calculate_dGf, cholesky_decomposition
 from ..util.posdef import isPD, nearestPD
-from ..util.util_func import Exclude_quadratic, correlated_pairs
+from ..util.util_func import Exclude_quadratic, correlated_pairs, quadratic_matrices
 from .compound import Thermo_met
 from warnings import warn
 from six import iteritems
@@ -23,6 +23,12 @@ from .solution import get_solution, get_legacy_solution
 from cobra.core.dictlist import DictList
 import optlang
 import itertools
+import os
+from random import choices
+import string
+from scipy import stats, linalg
+
+present_dir = os.path.normpath(os.path.dirname(os.path.abspath(__file__)))
 
 
 class tmodel(Model):
@@ -148,9 +154,6 @@ class tmodel(Model):
                 # self._gurobi_interface = self.solver.problem.copy()
                 self._gurobi_interface = self.Quadratic_constraint()
                 return self._gurobi_interface
-            else:
-                self._gurobi_interface = None
-                return self._gurobi_interface
 
     @property
     def cplex_interface(self):
@@ -158,10 +161,7 @@ class tmodel(Model):
             return self._cplex_interface
         except AttributeError:
             if self.solver.__class__.__module__ == "optlang.cplex_interface":
-                self._cplex_interface = copy(self.solver.problem)
-                return self._cplex_interface
-            else:
-                self._cplex_interface = None
+                self._cplex_interface = self.Quadratic_constraint()
                 return self._cplex_interface
 
     @property
@@ -482,7 +482,56 @@ class tmodel(Model):
         bounds = bounds_ellipsoid(cov_dg)  # Check for posdef cov_dg
 
         if self.solver.__class__.__module__ == "optlang.gurobi_interface":
+            from gurobipy import QuadExpr
+
             solver_interface = self.solver.problem.copy()
+
+            sphere_vars = []
+            for metabolite in cov_mets:
+                solver_interface.addVar(
+                    lb=-1, ub=1, name="Sphere_{}".format(metabolite.Kegg_id)
+                )
+
+            solver_interface.update()
+
+            sphere_vars = [
+                solver_interface.getVarByName("Sphere_{}".format(met.Kegg_id))
+                for met in cov_mets
+            ]
+
+            sphere_vars_np = np.array(sphere_vars)
+            sphere_vars_np = sphere_vars_np[np.newaxis, :]
+
+            # Add the spherical quadratic constraint
+            lhs_q_expr = QuadExpr()
+            lhs_q_expr.addTerms(
+                len(sphere_vars) * [1], list(sphere_vars), list(sphere_vars)
+            )
+            solver_interface.addQConstr(lhs_q_expr <= 1, name="Quadratic")
+
+            # Now calculate cholesky of the cov_dg
+            chol_cov_dg = np.linalg.cholesky(cov_dg)
+            chisq_val = stats.chi2.isf(q=0.05, df=len(cov_dg))
+
+            # Now define relation between ellipse error vars and sphere vars
+            ellipse_error_vars = [
+                solver_interface.getVarByName("met_{}".format(met.Kegg_id))
+                for met in cov_mets
+            ]
+
+            sph_relation = np.sqrt(chisq_val) * chol_cov_dg @ sphere_vars_np.T
+
+            for i in range(len(ellipse_error_vars)):
+                # print(ellipse_error_vars[i].VarName)
+                lhs_expr = ellipse_error_vars[i] - sph_relation[i][0]
+                varname = "relation_{}".format(ellipse_error_vars[i].VarName)
+                # print(lhs_expr, varname)
+                solver_interface.addConstr(
+                    lhs_expr == 0, name=varname,
+                )
+            solver_interface.update()
+
+            """
             # Get metabolite variable from gurobi interface
             metid_vars_dict = {}
             for var in solver_interface.getVars():
@@ -504,11 +553,48 @@ class tmodel(Model):
 
             solver_interface.addQConstr(lhs <= rhs, "Quadratic_cons")
             solver_interface.update()
-
+            """
             return solver_interface
 
         elif self.solver.__class__.__module__ == "optlang.cplex_interface":
-            pass
+
+            from cplex import Cplex, SparseTriple
+
+            tmp_dir = present_dir + os.sep + os.pardir + os.sep + "tmp"
+
+            if not os.path.exists(tmp_dir):
+                os.makedirs(tmp_dir)
+
+            rand_str = "".join(choices(string.ascii_lowercase + string.digits, k=6))
+            # write cplex model to mps file and re read
+            self.solver.problem.write(tmp_dir + rand_str + ".mps")
+
+            # Instantiate Cplex model
+            cplex_model = Cplex()
+            cplex_model.read(tmp_dir + rand_str + ".mps")
+            # os.rmdir(tmp_dir)
+
+            # Build the Quadratic constraint matrices now
+            q_ind1, q_ind2, q_val = quadratic_matrices(
+                covariance=cov_dg, metabolites=cov_mets
+            )
+            chi_val = stats.chi2.isf(q=0.05, df=len(cov_dg))
+
+            cplex_model.quadratic_constraints.add(
+                quad_expr=SparseTriple(ind1=q_ind1, ind2=q_ind2, val=q_val),
+                name="ellipse",
+                rhs=chi_val,
+            )
+
+            for met in cov_mets:
+                var_name = "met_{}".format(met.Kegg_id)
+                cplex_model.variables.set_lower_bounds(
+                    var_name, -bounds[cov_mets.index(met)]
+                )
+                cplex_model.variables.set_upper_bounds(
+                    var_name, bounds[cov_mets.index(met)]
+                )
+            return cplex_model
 
         else:
             raise NotImplementedError("Current solver doesn't support QC")
