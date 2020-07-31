@@ -478,6 +478,10 @@ class tmodel(Model):
         cov_dg = self.cov_dG[:, cov_met_inds]
         cov_dg = cov_dg[cov_met_inds, :]
 
+        # Now calculate cholesky of the cov_dg
+        chol_cov_dg = np.linalg.cholesky(cov_dg)
+        chisq_val = stats.chi2.isf(q=0.05, df=len(cov_dg))
+
         # Calculate ellipsoid box bounds and set to variables
         bounds = bounds_ellipsoid(cov_dg)  # Check for posdef cov_dg
 
@@ -491,6 +495,15 @@ class tmodel(Model):
                 solver_interface.addVar(
                     lb=-1, ub=1, name="Sphere_{}".format(metabolite.Kegg_id)
                 )
+
+                # Update the formation error variables to represent the eigen value vactor pair
+                solver_interface.getVarByName(
+                    "met_{}".format(metabolite.Kegg_id)
+                ).LB = -bounds[cov_mets.index(metabolite)]
+
+                solver_interface.getVarByName(
+                    "met_{}".format(metabolite.Kegg_id)
+                ).UB = bounds[cov_mets.index(metabolite)]
 
             solver_interface.update()
 
@@ -508,10 +521,6 @@ class tmodel(Model):
                 len(sphere_vars) * [1], list(sphere_vars), list(sphere_vars)
             )
             solver_interface.addQConstr(lhs_q_expr <= 1, name="Quadratic")
-
-            # Now calculate cholesky of the cov_dg
-            chol_cov_dg = np.linalg.cholesky(cov_dg)
-            chisq_val = stats.chi2.isf(q=0.05, df=len(cov_dg))
 
             # Now define relation between ellipse error vars and sphere vars
             ellipse_error_vars = [
@@ -531,34 +540,11 @@ class tmodel(Model):
                 )
             solver_interface.update()
 
-            """
-            # Get metabolite variable from gurobi interface
-            metid_vars_dict = {}
-            for var in solver_interface.getVars():
-                if var.VarName.startswith("met_"):
-                    metid_vars_dict[var.VarName[4:]] = var
-
-            lhs, rhs = quad_constraint(
-                cov_dg, cov_mets, metid_vars_dict
-            )  # Calculate lhs, rhs for quadratic constraints
-
-            for met in cov_mets:
-                # print(met.Kegg_id, met.delG_f, bounds[cov_mets.index(met)])
-                solver_interface.getVarByName("met_{}".format(met.Kegg_id)).LB = (
-                    met.delG_f - 1.2 * bounds[cov_mets.index(met)]
-                )
-                solver_interface.getVarByName("met_{}".format(met.Kegg_id)).UB = (
-                    met.delG_f + 1.2 * bounds[cov_mets.index(met)]
-                )
-
-            solver_interface.addQConstr(lhs <= rhs, "Quadratic_cons")
-            solver_interface.update()
-            """
             return solver_interface
 
         elif self.solver.__class__.__module__ == "optlang.cplex_interface":
 
-            from cplex import Cplex, SparseTriple
+            from cplex import Cplex, SparseTriple, SparsePair
 
             tmp_dir = present_dir + os.sep + os.pardir + os.sep + "tmp"
 
@@ -567,33 +553,58 @@ class tmodel(Model):
 
             rand_str = "".join(choices(string.ascii_lowercase + string.digits, k=6))
             # write cplex model to mps file and re read
-            self.solver.problem.write(tmp_dir + rand_str + ".mps")
-
+            self.solver.problem.write(tmp_dir + os.pardir + rand_str + ".mps")
             # Instantiate Cplex model
             cplex_model = Cplex()
-            cplex_model.read(tmp_dir + rand_str + ".mps")
-            # os.rmdir(tmp_dir)
+            cplex_model.read(tmp_dir + os.pardir + rand_str + ".mps")
 
-            # Build the Quadratic constraint matrices now
-            q_ind1, q_ind2, q_val = quadratic_matrices(
-                covariance=cov_dg, metabolites=cov_mets
-            )
-            chi_val = stats.chi2.isf(q=0.05, df=len(cov_dg))
-
-            cplex_model.quadratic_constraints.add(
-                quad_expr=SparseTriple(ind1=q_ind1, ind2=q_ind2, val=q_val),
-                name="ellipse",
-                rhs=chi_val,
-            )
-
+            Sphere_var_names = []
             for met in cov_mets:
-                var_name = "met_{}".format(met.Kegg_id)
+                # Adjust the formation error variable bounds with eigen value, vector pair
+                err_var_name = "met_{}".format(met.Kegg_id)
                 cplex_model.variables.set_lower_bounds(
-                    var_name, -bounds[cov_mets.index(met)]
+                    err_var_name, -bounds[cov_mets.index(met)]
                 )
                 cplex_model.variables.set_upper_bounds(
-                    var_name, bounds[cov_mets.index(met)]
+                    err_var_name, bounds[cov_mets.index(met)]
                 )
+
+                # Now define the variables for spherical variables for cov_mets
+                Sphere_var_names.append("Sphere_{}".format(met.Kegg_id))
+
+            cplex_model.variables.add(
+                names=Sphere_var_names,
+                lb=len(Sphere_var_names) * [-1],
+                ub=len(Sphere_var_names) * [1],
+            )
+
+            # Add the Sphere constraint
+            cplex_model.quadratic_constraints.add(
+                quad_expr=SparseTriple(
+                    ind1=Sphere_var_names,
+                    ind2=Sphere_var_names,
+                    val=len(Sphere_var_names) * [1],
+                ),
+                rhs=1,
+                name="ellipse",
+            )
+
+            # Add the linear constraints to draw relation between formation error variables and the sphere variables using cholesky matrix
+            ellipse_error_vars = ["met_{}".format(met.Kegg_id) for met in cov_mets]
+
+            for i in range(len(ellipse_error_vars)):
+                var_names = [ellipse_error_vars[i]]
+                var_names.extend(Sphere_var_names)
+                coeffs = [1]
+                coeffs.extend(list(-np.sqrt(chisq_val) * chol_cov_dg[i, :]))
+                cons_name = "relation_{}".format(ellipse_error_vars[i])
+                indices = cplex_model.linear_constraints.add(
+                    lin_expr=[SparsePair(ind=var_names, val=coeffs)],
+                    senses="E",
+                    rhs=[0],
+                    names=[cons_name],
+                )
+
             return cplex_model
 
         else:
