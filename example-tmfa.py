@@ -36,19 +36,14 @@ t_model = tmodel.tmodel(
     Exclude_list=Excl,
     concentration_dict=conc_dict,
 )
+t_model.solver = "cplex"
+from multiTFA.analysis import variability_legacy_cplex
 
-t_model.slim_optimize()
+vars_analysis = [rxn.id for rxn in t_model.reactions if not rxn.id.startswith("DM_")]
 
-warm_start = {}
-for var in t_model.variables:
-    if var.name.startswith("indicator"):
-        warm_start[var.name] = t_model.solver.primal_values[var.name]
+ranges = variability_legacy_cplex(t_model, variable_list=vars_analysis)
 
-for var in t_model.gurobi_interface.getVars():
-    if var.VarName in warm_start:
-        var.Start = warm_start[var.VarName]
-t_model.gurobi_interface.params.OutputFlag = 1
+f = open("ranges_ecoli_cplex.txt", "w")
+for index, ele in ranges.iterrows():
+    f.write("{}\t{}\t{}\n".format(index, ele["minimum"], ele["maximum"]))
 
-t_model.gurobi_interface.optimize()
-
-print(t_model.gurobi_interface.ObjVal)
