@@ -553,10 +553,10 @@ class tmodel(Model):
 
             rand_str = "".join(choices(string.ascii_lowercase + string.digits, k=6))
             # write cplex model to mps file and re read
-            self.solver.problem.write(tmp_dir + os.pardir + rand_str + ".mps")
+            self.solver.problem.write(tmp_dir + os.sep + rand_str + ".mps")
             # Instantiate Cplex model
             cplex_model = Cplex()
-            cplex_model.read(tmp_dir + os.pardir + rand_str + ".mps")
+            cplex_model.read(tmp_dir + os.sep + rand_str + ".mps")
 
             Sphere_var_names = []
             for met in cov_mets:
