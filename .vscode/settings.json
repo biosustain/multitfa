@@ -1,5 +1,5 @@
 {
-    "python.pythonPath": "/home/vishnu/.virtualenvs/tmfa_vish/bin/python",
+    "python.pythonPath": "/home/vishnu/.virtualenvs/tmfa/bin/python",
     "python.linting.pylintEnabled": true,
     "python.linting.enabled": true,
     "restructuredtext.confPath": "${workspaceFolder}/docs"

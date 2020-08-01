@@ -14,7 +14,7 @@ from ..util.constraints import (
 from copy import deepcopy, copy
 from ..util.dGf_calculation import calculate_dGf, cholesky_decomposition
 from ..util.posdef import isPD, nearestPD
-from ..util.util_func import Exclude_quadratic, correlated_pairs
+from ..util.util_func import Exclude_quadratic, correlated_pairs, quadratic_matrices
 from .compound import Thermo_met
 from warnings import warn
 from six import iteritems
@@ -23,6 +23,12 @@ from .solution import get_solution, get_legacy_solution
 from cobra.core.dictlist import DictList
 import optlang
 import itertools
+import os
+from random import choices
+import string
+from scipy import stats, linalg
+
+present_dir = os.path.normpath(os.path.dirname(os.path.abspath(__file__)))
 
 
 class tmodel(Model):
@@ -148,9 +154,6 @@ class tmodel(Model):
                 # self._gurobi_interface = self.solver.problem.copy()
                 self._gurobi_interface = self.Quadratic_constraint()
                 return self._gurobi_interface
-            else:
-                self._gurobi_interface = None
-                return self._gurobi_interface
 
     @property
     def cplex_interface(self):
@@ -158,10 +161,7 @@ class tmodel(Model):
             return self._cplex_interface
         except AttributeError:
             if self.solver.__class__.__module__ == "optlang.cplex_interface":
-                self._cplex_interface = copy(self.solver.problem)
-                return self._cplex_interface
-            else:
-                self._cplex_interface = None
+                self._cplex_interface = self.Quadratic_constraint()
                 return self._cplex_interface
 
     @property
@@ -314,16 +314,12 @@ class tmodel(Model):
                 )
                 constraint_covar_lb = self.problem.Constraint(
                     primary_met.compound_variable - paired_met.compound_variable,
-                    lb=primary_met.delG_f
-                    - paired_met.delG_f
-                    - 1.96 * np.sqrt(var_difference),
+                    lb=-1.96 * np.sqrt(var_difference),
                     name="covar_{}_{}_lb".format(primary_met.id, paired_met.id),
                 )
                 constraint_covar_ub = self.problem.Constraint(
                     primary_met.compound_variable - paired_met.compound_variable,
-                    ub=primary_met.delG_f
-                    - paired_met.delG_f
-                    + 1.96 * np.sqrt(var_difference),
+                    ub=1.96 * np.sqrt(var_difference),
                     name="covar_{}_{}_ub".format(primary_met.id, paired_met.id),
                 )
                 self.add_cons_vars([constraint_covar_lb, constraint_covar_ub])
@@ -344,7 +340,7 @@ class tmodel(Model):
 
             lhs_forward = rxn.delG_forward - RT * concentration_term - met_term
             lhs_reverse = rxn.delG_reverse + RT * concentration_term + met_term
-            rhs = rxn.transform + rxn.transport_delG
+            rhs = rxn.delG_transform
 
             delG_f = self.problem.Constraint(
                 lhs_forward,
@@ -477,42 +473,139 @@ class tmodel(Model):
                     cov_met_inds.append(self.metabolites.index(met))
                     cov_mets.append(met)
                     non_duplicate.append(met.Kegg_id)
-        print("stdev 5")
+
         # Pick indices of non zero non nan metabolites
         cov_dg = self.cov_dG[:, cov_met_inds]
         cov_dg = cov_dg[cov_met_inds, :]
+
+        # Now calculate cholesky of the cov_dg
+        chol_cov_dg = np.linalg.cholesky(cov_dg)
+        chisq_val = stats.chi2.isf(q=0.05, df=len(cov_dg))
 
         # Calculate ellipsoid box bounds and set to variables
         bounds = bounds_ellipsoid(cov_dg)  # Check for posdef cov_dg
 
         if self.solver.__class__.__module__ == "optlang.gurobi_interface":
+            from gurobipy import QuadExpr
+
             solver_interface = self.solver.problem.copy()
-            # Get metabolite variable from gurobi interface
-            metid_vars_dict = {}
-            for var in solver_interface.getVars():
-                if var.VarName.startswith("met_"):
-                    metid_vars_dict[var.VarName[4:]] = var
 
-            lhs, rhs = quad_constraint(
-                cov_dg, cov_mets, metid_vars_dict
-            )  # Calculate lhs, rhs for quadratic constraints
-            print(len(cov_dg))
-            for met in cov_mets:
-                # print(met.Kegg_id, met.delG_f, bounds[cov_mets.index(met)])
-                solver_interface.getVarByName("met_{}".format(met.Kegg_id)).LB = (
-                    met.delG_f - 1.2 * bounds[cov_mets.index(met)]
-                )
-                solver_interface.getVarByName("met_{}".format(met.Kegg_id)).UB = (
-                    met.delG_f + 1.2 * bounds[cov_mets.index(met)]
+            sphere_vars = []
+            for metabolite in cov_mets:
+                solver_interface.addVar(
+                    lb=-1, ub=1, name="Sphere_{}".format(metabolite.Kegg_id)
                 )
 
-            solver_interface.addQConstr(lhs <= rhs, "Quadratic_cons")
+                # Update the formation error variables to represent the eigen value vactor pair
+                solver_interface.getVarByName(
+                    "met_{}".format(metabolite.Kegg_id)
+                ).LB = -bounds[cov_mets.index(metabolite)]
+
+                solver_interface.getVarByName(
+                    "met_{}".format(metabolite.Kegg_id)
+                ).UB = bounds[cov_mets.index(metabolite)]
+
+            solver_interface.update()
+
+            sphere_vars = [
+                solver_interface.getVarByName("Sphere_{}".format(met.Kegg_id))
+                for met in cov_mets
+            ]
+
+            sphere_vars_np = np.array(sphere_vars)
+            sphere_vars_np = sphere_vars_np[np.newaxis, :]
+
+            # Add the spherical quadratic constraint
+            lhs_q_expr = QuadExpr()
+            lhs_q_expr.addTerms(
+                len(sphere_vars) * [1], list(sphere_vars), list(sphere_vars)
+            )
+            solver_interface.addQConstr(lhs_q_expr <= 1, name="Quadratic")
+
+            # Now define relation between ellipse error vars and sphere vars
+            ellipse_error_vars = [
+                solver_interface.getVarByName("met_{}".format(met.Kegg_id))
+                for met in cov_mets
+            ]
+
+            sph_relation = np.sqrt(chisq_val) * chol_cov_dg @ sphere_vars_np.T
+
+            for i in range(len(ellipse_error_vars)):
+                # print(ellipse_error_vars[i].VarName)
+                lhs_expr = ellipse_error_vars[i] - sph_relation[i][0]
+                varname = "relation_{}".format(ellipse_error_vars[i].VarName)
+                # print(lhs_expr, varname)
+                solver_interface.addConstr(
+                    lhs_expr == 0, name=varname,
+                )
             solver_interface.update()
 
             return solver_interface
 
         elif self.solver.__class__.__module__ == "optlang.cplex_interface":
-            pass
+
+            from cplex import Cplex, SparseTriple, SparsePair
+
+            tmp_dir = present_dir + os.sep + os.pardir + os.sep + "tmp"
+
+            if not os.path.exists(tmp_dir):
+                os.makedirs(tmp_dir)
+
+            rand_str = "".join(choices(string.ascii_lowercase + string.digits, k=6))
+            # write cplex model to mps file and re read
+            self.solver.problem.write(tmp_dir + os.sep + rand_str + ".mps")
+            # Instantiate Cplex model
+            cplex_model = Cplex()
+            cplex_model.read(tmp_dir + os.sep + rand_str + ".mps")
+
+            Sphere_var_names = []
+            for met in cov_mets:
+                # Adjust the formation error variable bounds with eigen value, vector pair
+                err_var_name = "met_{}".format(met.Kegg_id)
+                cplex_model.variables.set_lower_bounds(
+                    err_var_name, -bounds[cov_mets.index(met)]
+                )
+                cplex_model.variables.set_upper_bounds(
+                    err_var_name, bounds[cov_mets.index(met)]
+                )
+
+                # Now define the variables for spherical variables for cov_mets
+                Sphere_var_names.append("Sphere_{}".format(met.Kegg_id))
+
+            cplex_model.variables.add(
+                names=Sphere_var_names,
+                lb=len(Sphere_var_names) * [-1],
+                ub=len(Sphere_var_names) * [1],
+            )
+
+            # Add the Sphere constraint
+            cplex_model.quadratic_constraints.add(
+                quad_expr=SparseTriple(
+                    ind1=Sphere_var_names,
+                    ind2=Sphere_var_names,
+                    val=len(Sphere_var_names) * [1],
+                ),
+                rhs=1,
+                name="ellipse",
+            )
+
+            # Add the linear constraints to draw relation between formation error variables and the sphere variables using cholesky matrix
+            ellipse_error_vars = ["met_{}".format(met.Kegg_id) for met in cov_mets]
+
+            for i in range(len(ellipse_error_vars)):
+                var_names = [ellipse_error_vars[i]]
+                var_names.extend(Sphere_var_names)
+                coeffs = [1]
+                coeffs.extend(list(-np.sqrt(chisq_val) * chol_cov_dg[i, :]))
+                cons_name = "relation_{}".format(ellipse_error_vars[i])
+                indices = cplex_model.linear_constraints.add(
+                    lin_expr=[SparsePair(ind=var_names, val=coeffs)],
+                    senses="E",
+                    rhs=[0],
+                    names=[cons_name],
+                )
+
+            return cplex_model
 
         else:
             raise NotImplementedError("Current solver doesn't support QC")

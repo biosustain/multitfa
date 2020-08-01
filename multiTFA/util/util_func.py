@@ -3,6 +3,7 @@ from .posdef import isPD, nearestPD
 from collections import OrderedDict
 from six import iteritems
 from .thermo_constants import RT
+from scipy import linalg
 
 
 def cov2corr(covariance):
@@ -188,4 +189,18 @@ def correlated_pairs(model):
     correlated_mets = {k: v for k, v in correlated_pair.items() if v}
 
     return correlated_mets
+
+
+def quadratic_matrices(covariance, metabolites):
+
+    inv_covar = linalg.inv(covariance)
+    met_varnames = [met.compound_variable.name for met in metabolites]
+
+    ind1, ind2, val = ([], [], [])
+    for i in range(len(covariance)):
+        ind1.extend(len(covariance) * [met_varnames[i]])
+        ind2.extend(met_varnames)
+        val.extend(list(inv_covar[:, i]))
+
+    return (ind1, ind2, val)
 

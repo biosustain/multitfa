@@ -187,3 +187,140 @@ def variability_legacy_gurobi(
             "maximum": Series(index=rxn_name, data=fluxes_max),
         }
     )
+
+
+import os
+from random import choices
+import string
+
+
+def variability_legacy_cplex(
+    model,
+    variable_list=None,
+    min_growth=False,
+    biomass_rxn=None,
+    fraction_of_optim=0.9,
+    warm_start={},
+):
+    # Instead of copying the whole model, just copy the cplex solver object by writing to a file and reading again.
+    from cplex import Cplex, SparsePair
+
+    tmp_dir = (
+        os.path.normpath(os.path.dirname(os.path.abspath(__file__)))
+        + os.sep
+        + os.pardir
+        + os.sep
+        + "tmp"
+    )
+    if not os.path.exists(tmp_dir):
+        os.makedirs(tmp_dir)
+
+    rand_str = "".join(choices(string.ascii_lowercase + string.digits, k=6))
+    # write cplex model to mps file and re read
+    model.cplex_interface.write(tmp_dir + os.pardir + rand_str + ".mps")
+
+    # Instantiate Cplex model
+    cplex_model = Cplex()
+    cplex_model.read(tmp_dir + os.pardir + rand_str + ".mps")
+
+    # Make shorts for sense
+    max_sense = cplex_model.objective.sense.maximize
+    min_sense = cplex_model.objective.sense.minimize
+
+    if variable_list == None:
+        variables = model.cplex_interface.variables.get_names()
+    else:
+        variables = [var for var in variable_list]
+
+    vars_list_cplex = cplex_model.variables.get_names()
+    if min_growth:
+
+        if biomass_rxn == None:
+            raise ValueError(
+                "Please provide growth reaction name to add the minimum growth constraint"
+            )
+        # Make the biomass reaction objective
+
+        for varname in vars_list_cplex:
+            cplex_model.objective.set_linear(varname, 0)
+
+        biomass_for_name = model.reactions.get_by_id(biomass_rxn).forward_variable.name
+        biomass_rev_name = model.reactions.get_by_id(biomass_rxn).reverse_variable.name
+
+        cplex_model.objective.set_linear(
+            [(biomass_for_name, 1), (biomass_rev_name, -1)]
+        )
+
+        cplex_model.solve()
+
+        if model.solver.objective.direction == "max":
+            fva_old_objective = cplex_model.variables.add(names=["fva_old_objective"])
+            cplex_model.variables.set_lower_bounds = (
+                "fva_old_objective",
+                fraction_of_optim * cplex_model.solution.get_objective_value(),
+            )
+
+        else:
+            fva_old_objective = cplex_model.variables.add(names=["fva_old_objective"])
+            cplex_model.variables.set_upper_bounds = (
+                "fva_old_objective",
+                fraction_of_optim * cplex_model.solution.get_objective_value(),
+            )
+
+        # Add the minimal growth/production constraint
+        indices = cplex_model.linear_constraints.add(
+            lin_expr=[
+                SparsePair(
+                    ind=[biomass_for_name, biomass_rev_name, fva_old_objective],
+                    val=[1, -1, -1],
+                )
+            ],
+            senses="E",
+            rhs=[0],
+            names="min_growth",
+        )
+
+    fluxes_min = np.empty(len(variables))
+    fluxes_max = np.empty(len(variables))
+    rxn_name = list()
+
+    rxn_ids = [rxn.id for rxn in model.reactions]
+
+    for i in range(len(variables)):
+        # Reset objective vector for each iteration
+        for varname in vars_list_cplex:
+            cplex_model.objective.set_linear(varname, 0)
+
+        print(variables[i])
+        # if the variable is reactions optimize for forward - reverse variables else optimize for the variable
+        if variables[i] in rxn_ids:
+            rxn = model.reactions.get_by_id(variables[i])
+            cplex_model.objective.set_linear(
+                [(rxn.forward_variable.name, 1), (rxn.reverse_variable.name, -1)]
+            )
+
+        else:
+            cplex_model.objective.set_linear(variables[i], 1)
+
+        rxn_name.append(variables[i])
+
+        # minimization
+        cplex_model.objective.set_sense(min_sense)
+        cplex_model.solve()
+        objective_value = cplex_model.solution.get_objective_value()
+        fluxes_min[i] = objective_value
+        # print(rxn.id, "min", objective_value)
+
+        # maximiztion
+        cplex_model.objective.set_sense(max_sense)
+        cplex_model.solve()
+        objective_value = cplex_model.solution.get_objective_value()
+        fluxes_max[i] = objective_value
+        # print(rxn.id, "max", objective_value)
+
+    return DataFrame(
+        {
+            "minimum": Series(index=rxn_name, data=fluxes_min),
+            "maximum": Series(index=rxn_name, data=fluxes_max),
+        }
+    )
