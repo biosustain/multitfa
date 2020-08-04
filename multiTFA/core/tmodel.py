@@ -42,6 +42,7 @@ class tmodel(Model):
         tolerance_integral=1e-9,
         del_psi_dict={},
         correlated_met_pairs={},
+        compartment_info=None,
         debug=False,
     ):
         """ Class representation of tMFA model, dependeds on cobra model class.
@@ -65,6 +66,7 @@ class tmodel(Model):
             debug {bool} -- Debugging flag (default: {False})
         """
 
+        self.compartment_info = compartment_info
         do_not_copy_by_ref = {
             "metabolites",
             "reactions",
@@ -82,7 +84,6 @@ class tmodel(Model):
             new_met = Thermo_met(
                 metabolite=metabolite,
                 updated_model=self,
-                Kegg_map=Kegg_map,
                 concentration_dict=concentration_dict,
             )
             self.metabolites.append(new_met)
@@ -140,7 +141,7 @@ class tmodel(Model):
         try:
             return self._cholskey_matrix
         except AttributeError:
-            std_dg, cov_dg = calculate_dGf(self.metabolites, self.Kegg_map)
+            std_dg, cov_dg = calculate_dGf(self.metabolites)
             self._cholskey_matrix = cholesky_decomposition(std_dg, cov_dg)
 
             return self._cholskey_matrix
@@ -223,7 +224,7 @@ class tmodel(Model):
             cov_dg [np.ndarray] -- covariance matrix
         """
 
-        self.std_dG, self.cov_dG = calculate_dGf(self.metabolites, self.Kegg_map)
+        self.std_dG, self.cov_dG = calculate_dGf(self.metabolites)
 
     def update_thermo_variables(self):
         """ Generates reaction and metabolite variables required for thermodynamic analysis and adds to the model

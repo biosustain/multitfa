@@ -22,15 +22,7 @@ class Thermo_met(Metabolite):
     """
 
     def __init__(
-        self,
-        metabolite,
-        updated_model=None,
-        Kegg_map={},
-        concentration_dict={"min": {}, "max": {}},
-        delG_f=0,
-        pH=None,
-        ionic_strength=None,
-        temperature=None,
+        self, metabolite, updated_model=None,
     ):
 
         self._model = updated_model
@@ -39,20 +31,6 @@ class Thermo_met(Metabolite):
         for attr, value in iteritems(metabolite.__dict__):
             if attr not in do_not_copy_by_ref:
                 self.__dict__[attr] = copy(value) if attr == "formula" else value
-        self.Kegg_id = Kegg_map[self.id]
-        self.Kegg_map = Kegg_map
-        self.delG_f = self.calculate_delG_f()
-        # self.std_dev = sqrt(diag(self.model.cov_dG)[
-        #                        self.model.metabolites.index(self)])
-
-        if self.id in concentration_dict["min"].keys():
-            self._concentration_min = concentration_dict["min"][self.id]
-        else:
-            self._concentration_min = float(1e-5)
-        if self.id in concentration_dict["max"].keys():
-            self._concentration_max = concentration_dict["max"][self.id]
-        else:
-            self._concentration_max = float(2e-2)
 
     @property
     def concentration_variable(self):
@@ -64,7 +42,16 @@ class Thermo_met(Metabolite):
 
     @property
     def concentration_min(self):
-        return self._concentration_min
+        try:
+            return self._concentration_min
+        except AttributeError:
+            if self.model.compartment_info is not None:
+                self._concentration_min = float(
+                    self.model.compartment_info["c_min"][self.compartment]
+                )
+                return self._concentration_min
+            self._concentration_min = float(1e-5)
+            return self._concentration_min
 
     @concentration_min.setter
     def concentration_min(self, value):
@@ -72,15 +59,30 @@ class Thermo_met(Metabolite):
         self.concentration_variable.set_bounds(
             lb=log(value), ub=log(self.concentration_max)
         )
+        # Update the Gurobi and Cplex interface bounds
         if self.model.gurobi_interface is not None:
             self.model.gurobi_interface.getVarByName(
                 self.concentration_variable.name
             ).LB = log(value)
             self.model.gurobi_interface.update()
 
+        if self.model.cplex_interface is not None:
+            self.model.cplex_interface.variables.set_lower_bounds(
+                self.concentration_variable.name, log(value)
+            )
+
     @property
     def concentration_max(self):
-        return self._concentration_max
+        try:
+            return self._concentration_max
+        except AttributeError:
+            if self.model.compartment_info is not None:
+                self._concentration_max = float(
+                    self.model.compartment_info["c_max"][self.compartment]
+                )
+                return self._concentration_max
+            self._concentration_max = float(2e-2)
+            return self._concentration_max
 
     @concentration_max.setter
     def concentration_max(self, value):
@@ -88,11 +90,25 @@ class Thermo_met(Metabolite):
         self.concentration_variable.set_bounds(
             lb=log(self.concentration_min), ub=log(value)
         )
+        # Update the Gurobi and cplex interface bounds
         if self.model.gurobi_interface is not None:
             self.model.gurobi_interface.getVarByName(
                 self.concentration_variable.name
             ).UB = log(value)
             self.model.gurobi_interface.update()
+
+        if self.model.cplex_interface is not None:
+            self.model.cplex_interface.variables.set_upper_bounds(
+                self.concentration_variable.name, log(value)
+            )
+
+    @property
+    def Kegg_id(self):
+        return self._Kegg_id
+
+    @Kegg_id.setter
+    def Kegg_id(self, value):
+        self._Kegg_id = value
 
     @property
     def compound_variable(self):
@@ -101,6 +117,18 @@ class Thermo_met(Metabolite):
             return self.model.variables[conc_var]
         else:
             return None
+
+    @property
+    def delG_f(self):
+        try:
+            return self._delG_f
+        except AttributeError:
+            self._delG_f = self.calculate_delG_f()
+            return self._delG_f
+
+    @delG_f.setter
+    def delG_f(self, value):
+        self._delG_f = value
 
     @property
     def std_dev(self):
@@ -139,12 +167,15 @@ class Thermo_met(Metabolite):
         return -RT * total_ddg_over_rt
 
     def calculate_delG_f(self):
-        """ Calculates the standars formation energy of compound using component contribution method
+        """ Calculates the standard formation energy of compound using component contribution method
         
         Returns:
             float -- delG_f
         """
 
-        dG0f = calculate_dGf([self], self.Kegg_map)
+        dG0f = calculate_dGf([self])
+        pH = self.model.compartment_info["pH"][self.compartment]
+        ionic_strength = self.model.compartment_info["I"][self.compartment]
+        transform_value = self.transform(pH, ionic_strength)
 
-        return float(dG0f[0])
+        return float(dG0f[0]) + transform_value
