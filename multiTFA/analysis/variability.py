@@ -268,7 +268,7 @@ def variability_legacy_cplex(
             )
 
         # Add the minimal growth/production constraint
-        indices = cplex_model.linear_constraints.add(
+        _ = cplex_model.linear_constraints.add(
             lin_expr=[
                 SparsePair(
                     ind=[biomass_for_name, biomass_rev_name, fva_old_objective],
