@@ -134,7 +134,7 @@ class Thermo_met(Metabolite):
     def std_dev(self):
         if self.model is not None:
             std_dev = sqrt(
-                diag(self.model.cov_dG)[self.model.metabolites.index(self.id)]
+                diag(self.model.covariance_dG)[self.model.metabolites.index(self.id)]
             )
 
             return std_dev

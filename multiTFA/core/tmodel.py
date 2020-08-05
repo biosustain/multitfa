@@ -35,14 +35,10 @@ class tmodel(Model):
     def __init__(
         self,
         model,
-        Kegg_map={},
         Exclude_list=[],
-        pH_I_dict={},
-        concentration_dict={"min": {}, "max": {}},
         tolerance_integral=1e-9,
-        del_psi_dict={},
-        correlated_met_pairs={},
         compartment_info=None,
+        membrane_potential=None,
         debug=False,
     ):
         """ Class representation of tMFA model, dependeds on cobra model class.
@@ -67,6 +63,7 @@ class tmodel(Model):
         """
 
         self.compartment_info = compartment_info
+        self.membrane_potential = membrane_potential
         do_not_copy_by_ref = {
             "metabolites",
             "reactions",
@@ -81,11 +78,7 @@ class tmodel(Model):
         self.metabolites = DictList()
         do_not_copy_by_ref = {"_reaction", "_model"}
         for metabolite in model.metabolites:
-            new_met = Thermo_met(
-                metabolite=metabolite,
-                updated_model=self,
-                concentration_dict=concentration_dict,
-            )
+            new_met = Thermo_met(metabolite=metabolite, updated_model=self,)
             self.metabolites.append(new_met)
 
         self.genes = DictList()
@@ -102,13 +95,7 @@ class tmodel(Model):
         self.reactions = DictList()
         do_not_copy_by_ref = {"_model", "_metabolites", "_genes"}
         for reaction in model.reactions:
-            new_reaction = thermo_reaction(
-                cobra_rxn=reaction,
-                updated_model=self,
-                Kegg_map=Kegg_map,
-                pH_I_dict=pH_I_dict,
-                del_psi_dict=del_psi_dict,
-            )
+            new_reaction = thermo_reaction(cobra_rxn=reaction, updated_model=self,)
             self.reactions.append(new_reaction)
 
         try:
@@ -117,34 +104,8 @@ class tmodel(Model):
         except Exception:  # pragma: no cover
             self._solver = copy(model.solver)  # pragma: no cover
 
-        self.Kegg_map = Kegg_map
         self.Exclude_list = Exclude_list
-        self.pH_I_dict = pH_I_dict
-        self.concentration_dict = concentration_dict
-        self.del_psi_dict = del_psi_dict
-        self.covariance_matrix()
         self.solver.configuration.tolerances.integrality = tolerance_integral
-        self.Exclude_reactions = list(
-            set(Exclude_list + self.problematic_rxns)
-        )  # See if we can make this a cached property
-        self.correlated_met_pairs = correlated_met_pairs
-        self.update_thermo_variables()
-        self.update()
-
-    @property
-    def cholskey_matrix(self):
-        """Calculates cholesky matrix (square root of covariance matrix of compounds)
-        
-        Returns:
-            np.ndarray 
-        """
-        try:
-            return self._cholskey_matrix
-        except AttributeError:
-            std_dg, cov_dg = calculate_dGf(self.metabolites)
-            self._cholskey_matrix = cholesky_decomposition(std_dg, cov_dg)
-
-            return self._cholskey_matrix
 
     @property
     def gurobi_interface(self):
@@ -178,18 +139,30 @@ class tmodel(Model):
         problematic_metabolites = []
 
         for met in self.metabolites:
-            met_index = self.metabolites.index(met)
             if met.Kegg_id in ["C00080", "cpd00067"]:
                 continue
-            if np.count_nonzero(self.cholskey_matrix[:, met_index]) == 0 or np.isnan(
-                met.delG_f
-            ):  # or sqrt(diag(self.cov_dG)[self.metabolites.index(met)]) > 100:
+            if met.Kegg_id == 0 or np.isnan(met.delG_f):
                 problematic_metabolites.append(met)
 
         return problematic_metabolites
 
     @property
+    def Exclude_reactions(self):
+        try:
+            return self._Exclude_reactions
+        except AttributeError:
+            self._Exclude_reactions = self.Exclude_list + self.problematic_rxns
+            return self._Exclude_reactions
+
+    @property
     def problematic_rxns(self):
+        try:
+            return self._problematic_rxns
+        except AttributeError:
+            self._problematic_rxns = self.cal_problematic_rxns()
+            return self._problematic_rxns
+
+    def cal_problematic_rxns(self):
         """ Reactions which can't be included in thermodynamic analysis
             reactions involving problematic metabolites
         
@@ -216,7 +189,8 @@ class tmodel(Model):
             self._correlated_metabolites = correlated_pairs(self)
             return self._correlated_metabolites
 
-    def covariance_matrix(self):
+    @property
+    def covariance_dG(self):
         """calculates the covariance matrix of Gibbs free energy of the metabolites
         
         Returns:
@@ -224,7 +198,15 @@ class tmodel(Model):
             cov_dg [np.ndarray] -- covariance matrix
         """
 
-        self.std_dG, self.cov_dG = calculate_dGf(self.metabolites)
+        try:
+            return self._covariance_dG
+        except AttributeError:
+            _, self._covariance_dG = calculate_dGf(self.metabolites)
+            return self._covariance_dG
+
+    @covariance_dG.setter
+    def covariance_dG(self, value):
+        self._covariance_dG = value
 
     def update_thermo_variables(self):
         """ Generates reaction and metabolite variables required for thermodynamic analysis and adds to the model
@@ -296,34 +278,9 @@ class tmodel(Model):
         Returns:
             List -- List of themrodynamic constraints
         """
-        # if self.correlated_metabolites == None:
-        correlated_mets = correlated_pairs(self)
-
-        # Add covariance constraint to the correlated metabolite pairs
-        for met in correlated_mets:
-            primary_met = self.metabolites.get_by_id(met)
-            ind_met = self.metabolites.index(primary_met)
-            for i in range(len(correlated_mets[met])):
-                paired_met_id = list(correlated_mets[met])[i]
-                paired_met = self.metabolites.get_by_id(paired_met_id)
-                if primary_met.Kegg_id == paired_met.Kegg_id:
-                    continue
-                ind_paired_met = self.metabolites.index(paired_met)
-                covar_pair = self.cov_dG[ind_met, ind_paired_met]
-                var_difference = (
-                    primary_met.std_dev ** 2 + paired_met.std_dev ** 2 - 2 * covar_pair
-                )
-                constraint_covar_lb = self.problem.Constraint(
-                    primary_met.compound_variable - paired_met.compound_variable,
-                    lb=-1.96 * np.sqrt(var_difference),
-                    name="covar_{}_{}_lb".format(primary_met.id, paired_met.id),
-                )
-                constraint_covar_ub = self.problem.Constraint(
-                    primary_met.compound_variable - paired_met.compound_variable,
-                    ub=1.96 * np.sqrt(var_difference),
-                    name="covar_{}_{}_ub".format(primary_met.id, paired_met.id),
-                )
-                self.add_cons_vars([constraint_covar_lb, constraint_covar_ub])
+        # First check if thermovariables are added to the model, if not update. Just being conservative on when to update variables
+        if len(self.variables) <= 2.5 * len(self.reactions):
+            self.update_thermo_variables()
 
         rxn_constraints = []
         # Now add reaction variables and generate remaining constraints
@@ -341,7 +298,7 @@ class tmodel(Model):
 
             lhs_forward = rxn.delG_forward - RT * concentration_term - met_term
             lhs_reverse = rxn.delG_reverse + RT * concentration_term + met_term
-            rhs = rxn.delG_transform
+            rhs = rxn.delG_prime + rxn.delG_transport
 
             delG_f = self.problem.Constraint(
                 lhs_forward,
@@ -450,11 +407,9 @@ class tmodel(Model):
         :return: [description]
         :rtype: [type]
         """
-        correlated_mets = correlated_pairs(self)
-        correlated_met_values = list(itertools.chain(*correlated_mets.values()))
 
         # Problem metabolites, if met.delGf == 0 or cholesky row is zeros then delete them
-        delete_met, cov_mets, cov_met_inds, non_duplicate = [], [], [], []
+        cov_mets, cov_met_inds, non_duplicate = [], [], []
 
         # Identify problematic high variance metabolites
         #  Find metabolites that are present in different compartments and make sure they get one row/col in covariance matrix
@@ -462,21 +417,21 @@ class tmodel(Model):
             if (
                 met.delG_f == 0
                 or np.isnan(met.delG_f)
-                or met.std_dev > 50
-                or met.id in correlated_met_values
-                or met.id in correlated_mets.keys()
+                # or met.std_dev > 50
+                # or met.id in correlated_met_values
+                or met.id in self.correlated_metabolites
             ):
-                delete_met.append(met)
+                continue
+
+            if met.Kegg_id in non_duplicate:
+                continue
             else:
-                if met.Kegg_id in non_duplicate:
-                    continue
-                else:
-                    cov_met_inds.append(self.metabolites.index(met))
-                    cov_mets.append(met)
-                    non_duplicate.append(met.Kegg_id)
+                cov_met_inds.append(self.metabolites.index(met))
+                cov_mets.append(met)
+                non_duplicate.append(met.Kegg_id)
 
         # Pick indices of non zero non nan metabolites
-        cov_dg = self.cov_dG[:, cov_met_inds]
+        cov_dg = self.covariance_dG[:, cov_met_inds]
         cov_dg = cov_dg[cov_met_inds, :]
 
         # Now calculate cholesky of the cov_dg
@@ -490,6 +445,47 @@ class tmodel(Model):
             from gurobipy import QuadExpr
 
             solver_interface = self.solver.problem.copy()
+
+            # Adding the covariance constraint to correlated metabolites
+            for met_id in self.correlated_metabolites:
+                primary_met = self.metabolites.get_by_id(met_id)
+                ind_met = self.metabolites.index(primary_met)
+
+                for i in range(len(self.correlated_metabolites[met_id])):
+                    paired_met_id = list(self.correlated_metabolites[met_id])[i]
+                    paired_met = self.metabolites.get_by_id(paired_met_id)
+
+                    if (
+                        (primary_met.Kegg_id == paired_met.Kegg_id)
+                        or np.isnan(primary_met.std_dev)
+                        or np.isnan(paired_met.std_dev)
+                    ):
+                        continue
+                    ind_paired_met = self.metabolites.index(paired_met)
+                    covar_pair = self.covariance_dG[ind_met, ind_paired_met]
+                    var_difference = (
+                        primary_met.std_dev ** 2
+                        + paired_met.std_dev ** 2
+                        - 2 * covar_pair
+                    )
+                    lhs_covar = solver_interface.getVarByName(
+                        primary_met.compound_variable.name
+                    ) - solver_interface.getVarByName(paired_met.compound_variable.name)
+
+                    cons_name_lb = "covar_{}_{}_lb".format(
+                        primary_met.id, paired_met.id
+                    )
+                    cons_name_ub = "covar_{}_{}_ub".format(
+                        primary_met.id, paired_met.id
+                    )
+
+                    solver_interface.addConstr(
+                        lhs_covar >= -1.96 * var_difference, name=cons_name_lb
+                    )
+                    solver_interface.addConstr(
+                        lhs_covar <= 1.96 * var_difference, name=cons_name_ub
+                    )
+                    solver_interface.update()
 
             sphere_vars = []
             for metabolite in cov_mets:
@@ -559,6 +555,61 @@ class tmodel(Model):
             cplex_model = Cplex()
             cplex_model.read(tmp_dir + os.sep + rand_str + ".mps")
 
+            # Add the covariance constraints to the correlated metabolites
+            for met_id in self.correlated_metabolites:
+                primary_met = self.metabolites.get_by_id(met_id)
+                ind_met = self.metabolites.index(primary_met)
+
+                for i in range(len(self.correlated_metabolites[met_id])):
+                    paired_met_id = list(self.correlated_metabolites[met_id])[i]
+                    paired_met = self.metabolites.get_by_id(paired_met_id)
+
+                    if (
+                        (primary_met.Kegg_id == paired_met.Kegg_id)
+                        or np.isnan(primary_met.std_dev)
+                        or np.isnan(paired_met.std_dev)
+                    ):
+                        continue
+                    ind_paired_met = self.metabolites.index(paired_met)
+                    covar_pair = self.covariance_dG[ind_met, ind_paired_met]
+                    var_difference = (
+                        primary_met.std_dev ** 2
+                        + paired_met.std_dev ** 2
+                        - 2 * covar_pair
+                    )
+                    cons_name_lb = "covar_{}_{}_lb".format(
+                        primary_met.id, paired_met.id
+                    )
+                    cons_name_ub = "covar_{}_{}_ub".format(
+                        primary_met.id, paired_met.id
+                    )
+
+                    cplex_model.linear_constraints.add(
+                        lin_expr=SparsePair(
+                            ind=[
+                                primary_met.compound_variable.name,
+                                paired_met.compound_variable.name,
+                            ],
+                            val=[1, -1],
+                        ),
+                        senses=["G"],
+                        rhs=-1.96 * var_difference,
+                        names=[cons_name_lb],
+                    )
+
+                    cplex_model.linear_constraints.add(
+                        lin_expr=SparsePair(
+                            ind=[
+                                primary_met.compound_variable.name,
+                                paired_met.compound_variable.name,
+                            ],
+                            val=[1, -1],
+                        ),
+                        senses=["L"],
+                        rhs=1.96 * var_difference,
+                        names=[cons_name_ub],
+                    )
+
             Sphere_var_names = []
             for met in cov_mets:
                 # Adjust the formation error variable bounds with eigen value, vector pair
@@ -599,7 +650,7 @@ class tmodel(Model):
                 coeffs = [1]
                 coeffs.extend(list(-np.sqrt(chisq_val) * chol_cov_dg[i, :]))
                 cons_name = "relation_{}".format(ellipse_error_vars[i])
-                indices = cplex_model.linear_constraints.add(
+                _ = cplex_model.linear_constraints.add(
                     lin_expr=[SparsePair(ind=var_names, val=coeffs)],
                     senses="E",
                     rhs=[0],

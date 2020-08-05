@@ -23,17 +23,7 @@ class thermo_reaction(Reaction):
     """
 
     def __init__(
-        self,
-        cobra_rxn,
-        updated_model=None,
-        Kegg_map={},
-        pH_I_dict={},
-        del_psi_dict={},
-        isTrans=False,
-        rxn_delG=0,
-        transport_delG=0,
-        concentration_dict={"min": {}, "max": {}},
-        stoichiometric_matrix=[],
+        self, cobra_rxn, updated_model=None,
     ):
 
         """
@@ -68,17 +58,6 @@ class thermo_reaction(Reaction):
             new_gene = self.model.genes.get_by_id(gene.id)
             self._genes.add(new_gene)
             new_gene._reaction.add(self)
-
-        self.Kegg_map = Kegg_map
-        self.pH_I_dict = pH_I_dict
-        self.concentration_dict = concentration_dict
-        self.transport_metabolites = self.find_transportMets()
-        self.del_psi_dict = del_psi_dict
-        self.isTrans = self.isTransport()
-        self.transport_delG = self.delG_transport()
-        self.delG_transform = self.calculate_rxn_delG() + self.transport_delG
-        self.S_matrix = self.cal_stoichiometric_matrix()
-        self.transform = self.transform_adjustment()
 
     @property
     def delG_forward(self):
@@ -172,6 +151,74 @@ class thermo_reaction(Reaction):
         else:
             return None
 
+    @property
+    def delG_prime(self):
+        try:
+            return self._delG_prime
+        except AttributeError:
+            self._delG_prime = self.calculate_delG_prime()
+            return self._delG_prime
+
+    @delG_prime.setter
+    def delG_prime(self, value):
+        self._delG_prime = value  # Update the value in model constraints
+
+    @property
+    def net_charge_transport(self):
+        try:
+            return self._net_charge_transport
+        except AttributeError:
+            self._net_charge_transport = self.cal_net_charge()  # Adjust this
+            return self._net_charge_transport
+
+    @net_charge_transport.setter
+    def net_charge_transport(self, value):
+        self._net_charge_transport = value  # Same again
+
+    @property
+    def is_Trans(self):
+        try:
+            return self._is_Trans
+        except AttributeError:
+            if len(self.compartments) > 1:
+                self._is_Trans = True
+            else:
+                self._is_Trans = False
+
+            return self._is_Trans
+
+    @property
+    def transport_metabolites(self):
+        try:
+            return self._transport_metabolites
+        except AttributeError:
+            self._transport_metabolites = self.find_transportMets()
+            return self._transport_metabolites
+
+    @property
+    def delG_transport(self):
+        try:
+            return self._delG_transport
+        except AttributeError:
+            if self.is_Trans:
+                net_charge, direction = self.net_charge_transport
+                ref_comp, target_comp = next(iter(direction.items()))
+                # print(net_charge, direction)
+                self._delG_transport = (
+                    net_charge
+                    * FARADAY
+                    * self.model.membrane_potential[ref_comp][target_comp]
+                    * 1e-3
+                )
+            else:
+                self._delG_transport = 0
+
+            return self._delG_transport
+
+    @delG_transport.setter
+    def delG_transport(self, value):
+        self._delG_transport = value  # Update the consraints
+
     def cal_stoichiometric_matrix(self):
         """ Reaction stoichiometry, two columns to represent forward and reverse
         
@@ -190,7 +237,7 @@ class thermo_reaction(Reaction):
         _id_to_metabolites = {m.id: m for m in self.metabolites}
         return self.metabolites[_id_to_metabolites[metabolite_id]]
 
-    def calculate_rxn_delG(self):
+    def calculate_delG_prime(self):
 
         """ Calculates standard Gibbs free energy of reactions (Needs to be transformed to pH and I to get transformed Gibbs free energy of reaction
         
@@ -200,74 +247,46 @@ class thermo_reaction(Reaction):
 
         rxn_delG = 0
         for metabolite, stoic in iteritems(self.metabolites):
-            pH = self.pH_I_dict["pH"][metabolite.compartment]
-            ionic_strength = self.pH_I_dict["I"][metabolite.compartment]
-            transform = metabolite.transform(pH, ionic_strength)
-            rxn_delG += stoic * (float(metabolite.delG_f) + transform)
+            rxn_delG += stoic * float(metabolite.delG_f)
 
         return rxn_delG
 
-    def transform_adjustment(self):
-
-        transform_adjust = 0
-        for metabolite, stoic in iteritems(self.metabolites):
-            pH = self.pH_I_dict["pH"][metabolite.compartment]
-            ionic_strength = self.pH_I_dict["I"][metabolite.compartment]
-            transform = metabolite.transform(pH, ionic_strength)
-            transform_adjust += stoic * transform
-        return transform_adjust
-
     def find_transportMets(self):
-
-        """ Find transported species (metabolites) in the reaction
-
-        if a compound is preset in both reactant and products it is considered as transported species
-        
-        Returns:
-            Dict -- 
-        """
-
-        products_KEGG = {}
-        for i in self.products:
-            products_KEGG[self.Kegg_map[i.id]] = i
-
-        transport_mets = {}
-        for i in self.reactants:
-            if self.Kegg_map[i.id] in products_KEGG.keys():
-                transport_mets[i] = products_KEGG[self.Kegg_map[i.id]]
-
-        return transport_mets
-
-    def isTransport(self):
-
-        """ Boolean -- Check if the reaction is transport reaction
-        if the reaction is happening in more than one compratments then its transport reaction
+        """ Find the pairs of transport metabolites in a reaction. If a metabolite is present in more than one compartment, then the metabolite is considered as transport metabolite.
 
         Returns:
-            bool -- Boolean of transport or not
+            Dict: key , value pair of transport metabolites in different compartments
+
+            Example
+            atp_c + h_c --> atp_e + h_c
+            
+            transport_pair = {atp_c : atp_e}
         """
 
-        if len(self.compartments) > 1:
-            self.isTrans = True
-        else:
-            self.isTrans = False
-        return self.isTrans
+        # First create a Kegg_id:metabolite dict for prodcucts
+        Kegg_prod_map = {met.Kegg_id: met for met in self.products}
+
+        # Now look for the products Kegg id's in reactants and make sure they are in different compartments
+        transport_pair = {}
+        for reactant in self.reactants:
+            if reactant.Kegg_id in Kegg_prod_map:
+                if reactant.compartment != Kegg_prod_map[reactant.Kegg_id].compartment:
+                    transport_pair[reactant] = Kegg_prod_map[reactant.Kegg_id]
+
+        return transport_pair
 
     def _proton_balance(self):
 
         """ Function to calculate if proton balance for some weird reactions like ATP synthase where protons are moved across membrane and some of them are consumed in the reaction
         """
 
-        compartments = [met.compartment for met in self.metabolites]
-        compartments = list(set(compartments))
-        comp1 = []
-        comp2 = []
+        compartments = list(set([met.compartment for met in self.metabolites]))
 
+        comp1, comp2 = ([], [])
         for metabolite in self.metabolites:
+            num_H = 0
             if "H" in metabolite.elements:
                 num_H = metabolite.elements["H"]
-            else:
-                num_H = 0
 
             if metabolite.compartment == compartments[0]:
                 coeff = self.get_coefficient(metabolite.id)
@@ -286,23 +305,20 @@ class thermo_reaction(Reaction):
 
         is_complex = False
         proton_compounds = [
-            met
-            for met in self.metabolites
-            if self.Kegg_map[met.id] in ["C00080", "cpd00067"]
+            met for met in self.metabolites if met.Kegg_id in ["C00080", "cpd00067"]
         ]
         in_coeff = self.get_coefficient(proton_compounds[0].id)
         out_coeff = self.get_coefficient(proton_compounds[1].id)
 
         if abs(in_coeff) != abs(out_coeff):
             is_complex = True
+
         return is_complex
 
     def _simple_proton(self):
         if not self._iscomplex_transport():
             proton_compounds = [
-                met
-                for met in self.metabolites
-                if self.Kegg_map[met.id] in ["C00080", "cpd00067"]
+                met for met in self.metabolites if met.Kegg_id in ["C00080", "cpd00067"]
             ]
             in_coeff = self.get_coefficient(proton_compounds[0].id)
             out_coeff = self.get_coefficient(proton_compounds[1].id)
@@ -317,7 +333,7 @@ class thermo_reaction(Reaction):
             h_transport = self._simple_proton()
         return h_transport
 
-    def delG_transport(self):
+    def cal_net_charge(self):
 
         """ Calculates the transport Gibbs free energy of reactions
         delG_transport = net_charge * FARADAY * del_psi 
@@ -325,37 +341,34 @@ class thermo_reaction(Reaction):
         Returns:
             Float -- transport Gibbs free energy of reaction
         """
+        net_charge_transported = 0
+        reference_comp, transported_comp = ("", "")
 
-        if self.isTrans == True:
+        if self.is_Trans:
             if len(self.transport_metabolites) > 0:
-                # print(self.id)
-                reference_comp = list(self.transport_metabolites.keys())[0].compartment
-                transported_comp = self.transport_metabolites[
-                    list(self.transport_metabolites.keys())[0]
-                ].compartment
+                for metabolite in self.transport_metabolites:
+                    reference_comp = metabolite.compartment
+                    transported_comp = self.transport_metabolites[
+                        metabolite
+                    ].compartment
+
+                    break
 
                 net_charge = []
 
                 for transported in self.transport_metabolites:
-                    if self.Kegg_map[transported.id] in ["C00080", "cpd00067"]:
+                    if transported.Kegg_id in ["C00080", "cpd00067"]:
                         coeff = self._proton_transport()
                     else:
                         coeff = self.get_coefficient(transported.id)
 
                     if transported.compartment == reference_comp:
-                        # print(type(coeff), type(transported.charge))
                         charge_transported = abs(coeff) * transported.charge
                         net_charge.append(charge_transported)
                     else:
                         charge_transported = -abs(coeff) * transported.charge
                         net_charge.append(charge_transported)
+                net_charge_transported = sum(net_charge)
 
-                del_psi = self.del_psi_dict[reference_comp][transported_comp]
-                del_psi_G = sum(net_charge) * FARADAY * del_psi * 1e-3
+        return (net_charge_transported, {reference_comp: transported_comp})
 
-                transport_delG = del_psi_G
-            else:
-                transport_delG = 0
-        else:
-            transport_delG = 0
-        return transport_delG
