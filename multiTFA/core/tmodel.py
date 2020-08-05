@@ -141,7 +141,7 @@ class tmodel(Model):
         for met in self.metabolites:
             if met.Kegg_id in ["C00080", "cpd00067"]:
                 continue
-            if met.Kegg_id == 0 or np.isnan(met.delG_f):
+            if met.delG_f == 0 or np.isnan(met.delG_f):
                 problematic_metabolites.append(met)
 
         return problematic_metabolites
