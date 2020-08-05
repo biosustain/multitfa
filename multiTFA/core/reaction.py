@@ -180,7 +180,7 @@ class thermo_reaction(Reaction):
         try:
             return self._is_Trans
         except AttributeError:
-            if len(self.compartments) > 1:
+            if len(self.transport_metabolites) > 0:
                 self._is_Trans = True
             else:
                 self._is_Trans = False
@@ -202,7 +202,9 @@ class thermo_reaction(Reaction):
         except AttributeError:
             if self.is_Trans:
                 net_charge, direction = self.net_charge_transport
+                # print(self.id, net_charge)
                 ref_comp, target_comp = next(iter(direction.items()))
+                # print(ref_comp, target_comp)
                 # print(net_charge, direction)
                 self._delG_transport = (
                     net_charge
@@ -213,7 +215,7 @@ class thermo_reaction(Reaction):
             else:
                 self._delG_transport = 0
 
-            return self._delG_transport
+        return self._delG_transport
 
     @delG_transport.setter
     def delG_transport(self, value):
