@@ -161,7 +161,7 @@ def correlated_pairs(model):
             non_duplicate.append(met.Kegg_id)
 
     # Pick indices of non zero non nan metabolites
-    cov_dg = model.cov_dG[:, cov_met_inds]
+    cov_dg = model.covariance_dG[:, cov_met_inds]
     cov_dg = cov_dg[cov_met_inds, :]
 
     correlation_mat = cov2corr(cov_dg)

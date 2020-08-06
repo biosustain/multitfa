@@ -141,7 +141,7 @@ class tmodel(Model):
         for met in self.metabolites:
             if met.Kegg_id in ["C00080", "cpd00067"]:
                 continue
-            if met.delG_f == 0 or np.isnan(met.delG_f):
+            if met.delG_f == 0 or np.isnan(met.delG_f) or met.std_dev == 0:
                 problematic_metabolites.append(met)
 
         return problematic_metabolites
@@ -417,6 +417,7 @@ class tmodel(Model):
             if (
                 met.delG_f == 0
                 or np.isnan(met.delG_f)
+                or met.std_dev == 0
                 # or met.std_dev > 50
                 # or met.id in correlated_met_values
                 or met.id in self.correlated_metabolites
@@ -435,11 +436,16 @@ class tmodel(Model):
         cov_dg = cov_dg[cov_met_inds, :]
 
         # Now calculate cholesky of the cov_dg
-        chol_cov_dg = np.linalg.cholesky(cov_dg)
-        chisq_val = stats.chi2.isf(q=0.05, df=len(cov_dg))
+        if not isPD(cov_dg):
+            cov_dg_pd = nearestPD(cov_dg)
+        else:
+            cov_dg_pd = cov_dg
+
+        chol_cov_dg = np.linalg.cholesky(cov_dg_pd)
+        chisq_val = stats.chi2.isf(q=0.05, df=len(cov_dg_pd))
 
         # Calculate ellipsoid box bounds and set to variables
-        bounds = bounds_ellipsoid(cov_dg)  # Check for posdef cov_dg
+        bounds = bounds_ellipsoid(cov_dg_pd)  # Check for posdef cov_dg
 
         if self.solver.__class__.__module__ == "optlang.gurobi_interface":
             from gurobipy import QuadExpr
