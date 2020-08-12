@@ -158,25 +158,6 @@ def formation_exp(reaction):
     )
 
 
-def stddev_sampling_rhs(
-    reaction, met_sample_dict
-):  # Have to define met_sample_dict, {metid:sampled_value}
-    """ Used for sampling. to calculate the rxn standard deviation from the sampled fromation energies
-    
-    Arguments:
-        reaction {core.reaction} -- reaction object
-        met_sample_dict {Dict} -- Formation sample of metabolites
-
-    Returns:
-        float -- total S.D of reaction sample (S.T @ Sample)
-    """
-    rxn_delG_stdev = 0
-    for metabolite, stoic in iteritems(reaction.metabolites):
-        rxn_delG_stdev += stoic * (float(met_sample_dict[metabolite.id]))
-
-    return rxn_delG_stdev
-
-
 def quad_constraint(covar, mets, met_var_dict):
     """ generates lhs and rhs for qudratic constraints for the metabolites
 

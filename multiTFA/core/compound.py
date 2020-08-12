@@ -123,12 +123,15 @@ class Thermo_met(Metabolite):
         try:
             return self._delG_f
         except AttributeError:
-            self._delG_f = self.calculate_delG_f()
+            index = self.model.metabolites.index(self)
+            self._delG_f = self.model._std_dG[index]
             return self._delG_f
 
     @delG_f.setter
     def delG_f(self, value):
         self._delG_f = value
+        index = self.model.metabolites.index(self)
+        self.model._std_dG[index] = value
 
     @property
     def std_dev(self):

@@ -1,6 +1,6 @@
 from .reaction import thermo_reaction
 import numpy as np
-from ..util.thermo_constants import Vmax, K, RT
+from ..util.thermo_constants import Vmax, K, RT, default_T
 from ..util.constraints import (
     directionality,
     delG_indicator,
@@ -27,6 +27,7 @@ import os
 from random import choices
 import string
 from scipy import stats, linalg
+from equilibrator_api import ComponentContribution, Q_
 
 present_dir = os.path.normpath(os.path.dirname(os.path.abspath(__file__)))
 
@@ -127,6 +128,25 @@ class tmodel(Model):
                 return self._cplex_interface
 
     @property
+    def covariance_dG(self):
+        """calculates the covariance matrix of Gibbs free energy of the metabolites
+        
+        Returns:
+            std_dg [np.ndarray] -- std delg of all metabolites
+            cov_dg [np.ndarray] -- covariance matrix
+        """
+
+        try:
+            return self._covariance_dG
+        except AttributeError:
+            self._covariance_dG = self._populate_thermo_properties()
+            return self._covariance_dG
+
+    @covariance_dG.setter
+    def covariance_dG(self, value):
+        self._covariance_dG = value
+
+    @property
     def problem_metabolites(self):
         """ Metabolites for which we can't calculate the Gibbs free energy of formation using component contribution method
 
@@ -141,7 +161,7 @@ class tmodel(Model):
         for met in self.metabolites:
             if met.Kegg_id in ["C00080", "cpd00067"]:
                 continue
-            if met.delG_f == 0 or np.isnan(met.delG_f) or met.std_dev == 0:
+            if met.delG_f == 0 or np.isnan(met.delG_f):
                 problematic_metabolites.append(met)
 
         return problematic_metabolites
@@ -189,24 +209,36 @@ class tmodel(Model):
             self._correlated_metabolites = correlated_pairs(self)
             return self._correlated_metabolites
 
-    @property
-    def covariance_dG(self):
-        """calculates the covariance matrix of Gibbs free energy of the metabolites
-        
-        Returns:
-            std_dg [np.ndarray] -- std delg of all metabolites
-            cov_dg [np.ndarray] -- covariance matrix
-        """
+    def _populate_thermo_properties(self):
 
-        try:
-            return self._covariance_dG
-        except AttributeError:
-            _, self._covariance_dG = calculate_dGf(self.metabolites)
-            return self._covariance_dG
+        eq_api = ComponentContribution()
+        mus, sigmas = ([], [])
+        for met in self.metabolites:
+            api_cpd = eq_api.get_compound(met.Kegg_id)
+            if api_cpd is None:
+                mus.append(0)
+                sigmas.append(669 * [0])
+                continue
 
-    @covariance_dG.setter
-    def covariance_dG(self, value):
-        self._covariance_dG = value
+            mu, sigma = eq_api.standard_dg_formation(api_cpd)
+            if sigma is None:
+                mus.append(0)
+                sigmas.append(669 * [0])
+                continue
+
+            transform = api_cpd.transform(
+                p_h=Q_(self.compartment_info["pH"][met.compartment]),
+                ionic_strength=Q_(
+                    str(self.compartment_info["I"][met.compartment]) + " M"
+                ),
+                temperature=Q_(str(default_T) + " K"),
+            )
+            mus.append(mu + transform)
+            sigmas.append(sigma.tolist())
+            sigmas = np.array(sigmas)
+            self._std_dG = mus
+            covariance = sigmas @ sigmas.T
+        return covariance
 
     def update_thermo_variables(self):
         """ Generates reaction and metabolite variables required for thermodynamic analysis and adds to the model
@@ -218,27 +250,45 @@ class tmodel(Model):
         Reaction delG variable
         Reaction flux indicator variable
         """
-        # add formation energy variables w.r.t to kegg ids
-        # metabolite concentration, Ci and metabolite variables
-        conc_variables = []
-        met_variables = []
-        added_met_var = []
-
+        # Add metabolite concentration variable
         for metabolite in self.metabolites:
-            conc_var, met_variable = metabolite_variables(metabolite)
-            conc_variables.append(conc_var)
-            if metabolite.Kegg_id in added_met_var:
-                continue
-            met_variables.append(met_variable)
-            added_met_var.append(metabolite.Kegg_id)
-        self.add_cons_vars(conc_variables + met_variables)
+            conc_variable = self.problem.Variable(
+                "lnc_{}".format(metabolite.id),
+                lb=np.log(metabolite.concentration_min),
+                ub=np.log(metabolite.concentration_max),
+            )
+            self.add_cons_vars([conc_variable])
 
-        # Now add reaction variables and generate remaining constraints
+        # Adding the thermo variables for reactions, delG_reaction and indicator (binary)
         for rxn in self.reactions:
             if rxn.id in self.Exclude_reactions:
                 continue
-            reaction_vars = reaction_variables(rxn)
-            self.add_cons_vars(reaction_vars)
+            delG_forward = self.problem.Variable(
+                "dG_{}".format(rxn.forward_variable.name), lb=-1e5, ub=1e5
+            )
+
+            delG_reverse = self.problem.Variable(
+                "dG_{}".format(rxn.reverse_variable.name), lb=-1e5, ub=1e5
+            )
+
+            indicator_forward = self.problem.Variable(
+                "indicator_{}".format(rxn.forward_variable.name),
+                lb=0,
+                ub=1,
+                type="binary",
+            )
+
+            indicator_reverse = self.problem.Variable(
+                "indicator_{}".format(rxn.reverse_variable.name),
+                lb=0,
+                ub=1,
+                type="binary",
+            )
+            self.add_cons_vars(
+                [delG_forward, delG_reverse, indicator_forward, indicator_reverse]
+            )
+
+        # Now add the thermo variables associated with components in component contribution method. These variables will be same for all the models, doesn't depend on the metabolites, reactions of the model.
 
     def calculate_S_matrix(self):
         """ Calculates the stoichiometric matrix (metabolites * Reactions)
