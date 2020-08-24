@@ -1,13 +1,15 @@
 from cobra import Metabolite
-from ..comp_cache import comp_cache
-from numpy import logaddexp, log, diag, sqrt
-from ..util.dGf_calculation import calculate_dGf
-from ..util.thermo_constants import RT, default_T
+import numpy as np
+from ..util.thermo_constants import *
 from six import iteritems
 from copy import copy, deepcopy
+from equilibrator_api import ComponentContribution, Q_
+from equilibrator_cache import Compound
+
+api = ComponentContribution()
 
 
-class Thermo_met(Metabolite):
+class Thermo_met(Metabolite, Compound):
     """ Class representation of thermodynamic metabolite object
     
     Arguments:
@@ -57,18 +59,18 @@ class Thermo_met(Metabolite):
     def concentration_min(self, value):
         self._concentration_min = value
         self.concentration_variable.set_bounds(
-            lb=log(value), ub=log(self.concentration_max)
+            lb=np.log(value), ub=np.log(self.concentration_max)
         )
         # Update the Gurobi and Cplex interface bounds
         if self.model.gurobi_interface is not None:
             self.model.gurobi_interface.getVarByName(
                 self.concentration_variable.name
-            ).LB = log(value)
+            ).LB = np.log(value)
             self.model.gurobi_interface.update()
 
         if self.model.cplex_interface is not None:
             self.model.cplex_interface.variables.set_lower_bounds(
-                self.concentration_variable.name, log(value)
+                self.concentration_variable.name, np.log(value)
             )
 
     @property
@@ -88,18 +90,18 @@ class Thermo_met(Metabolite):
     def concentration_max(self, value):
         self._concentration_max = value
         self.concentration_variable.set_bounds(
-            lb=log(self.concentration_min), ub=log(value)
+            lb=np.log(self.concentration_min), ub=np.log(value)
         )
         # Update the Gurobi and cplex interface bounds
         if self.model.gurobi_interface is not None:
             self.model.gurobi_interface.getVarByName(
                 self.concentration_variable.name
-            ).UB = log(value)
+            ).UB = np.log(value)
             self.model.gurobi_interface.update()
 
         if self.model.cplex_interface is not None:
             self.model.cplex_interface.variables.set_upper_bounds(
-                self.concentration_variable.name, log(value)
+                self.concentration_variable.name, np.log(value)
             )
 
     @property
@@ -119,66 +121,85 @@ class Thermo_met(Metabolite):
             return None
 
     @property
+    def compound_vector(self):
+        try:
+            return self._compound_vector
+        except AttributeError:
+            self.get_equilibrator_accession()
+            self._compound_vector = self.get_compound_vector()
+
+    @property
     def delG_f(self):
         try:
             return self._delG_f
         except AttributeError:
-            index = self.model.metabolites.index(self)
-            self._delG_f = self.model._std_dG[index]
+            self._delG_f = self.calculate_delG_f()
             return self._delG_f
 
     @delG_f.setter
     def delG_f(self, value):
         self._delG_f = value
-        index = self.model.metabolites.index(self)
-        self.model._std_dG[index] = value
 
     @property
     def std_dev(self):
-        if self.model is not None:
-            std_dev = sqrt(
-                diag(self.model.covariance_dG)[self.model.metabolites.index(self.id)]
-            )
+        try:
+            return self._std_dev
+        except AttributeError:
+            variance = self.compound_vector @ C @ self.compound_vector.T
+            self._std_dev = np.sqrt(variance[0])
+            return self._std_dev
 
-            return std_dev
-        else:
-            return 0
-
-    def transform(self, pH, ionic_strength):
-        """ Transform the delGf with respect to pH, ionic strength based on Alberty calculations
-        
-        Arguments:
-            pH {float} -- pH
-            ionic_strength {float} -- ionic strength in Molar
-            temperature {float} -- temperature in Kelvin
-        
-        Returns:
-            [type] -- [description]
+    def get_equilibrator_accession(self):
+        """ Get the equilibrator compound from api and populate the attributes of the thermo met
         """
-        ccache = comp_cache(self.Kegg_id)
-        if ccache.microspecies != []:
-            ddg_over_rt = sorted(
-                -1 * ms.transform(pH, ionic_strength, default_T)
-                for ms in ccache.microspecies
-            )
+        cpd_accession = api.get_compound(self.Kegg_id)
+        if cpd_accession:
+            do_not_copy = ["id", "_sa_instance_state", "updated_on", "created_on"]
+            for attr, value in iteritems(cpd_accession.__dict__):
+                if attr not in do_not_copy:
+                    self.__dict__[attr] = copy(value)
 
-            total_ddg_over_rt = ddg_over_rt[0]
-            for x in ddg_over_rt[1:]:
-                total_ddg_over_rt = logaddexp(total_ddg_over_rt, x)
+            self.eq_id = cpd_accession.id
         else:
-            total_ddg_over_rt = 0
-        return -RT * total_ddg_over_rt
+            self._delG_f = 0
+            self.std_dev = 0
+
+    def get_compound_vector(self):
+        """ This is the implementation of compound vector from component contribution. Checks if the compound is covered by group contribution, reactant contribution or neither
+
+        Returns:
+            comp_vector  np.array or None
+                        Compound vector with index of the compound in training data (component contribution) or None
+            
+        """
+        try:
+            rc_index = rc_compound_ids.index(self.eq_id)
+            comp_vector = np.zeros(
+                Nc + Ng, dtype=float
+            )  # Define rc_compound_ids, num_rc, num_gc
+            comp_vector[rc_index] = 1
+            return comp_vector
+        except ValueError:
+            if self.group_vector:
+                return np.hstack([np.zeros(Nc, dtype=float), self.group_vector])
+            else:
+                return None
 
     def calculate_delG_f(self):
-        """ Calculates the standard formation energy of compound using component contribution method
+        """ Calculates the standard transformed Gibbs formation energy of compound using component contribution method. pH, Ionic strength values are taken from model's compartment_info attribute
         
         Returns:
-            float -- delG_f
+            float -- Transformed Gibbs energy of formation adjusted to pH, ionic strength of metabolite
         """
 
-        dG0f = calculate_dGf([self])
-        pH = self.model.compartment_info["pH"][self.compartment]
-        ionic_strength = self.model.compartment_info["I"][self.compartment]
-        transform_value = self.transform(pH, ionic_strength)
+        std_dG_f = mu @ self.compound_vector
+        transform = self.transform(
+            p_h=Q_(self.model.compartment_info["pH"][self.compartment]),
+            ionic_strength=Q_(
+                str(self.model.compartment_info["I"][self.compartment]) + " M"
+            ),
+            temperature=Q_(str(default_T) + " K"),
+        )
 
-        return float(dG0f[0]) + transform_value
+        return float(std_dG_f + transform)
+
