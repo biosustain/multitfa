@@ -149,6 +149,34 @@ class Thermo_met(Metabolite, Compound):
             self._std_dev = np.sqrt(variance[0])
             return self._std_dev
 
+    @property
+    def major_ms(self, p_mg=14):
+        try:
+            return self._major_ms
+        except AttributeError:
+            self._major_ms = self.abundant_ms(
+                pH=Q_(self.model.compartment_info["pH"][self.compartment]),
+                I=Q_(str(self.model.compartment_info["I"][self.compartment]) + " M"),
+                temperature=Q_(str(default_T) + " K"),
+                pMg=Q_(self.model.compartment_info["pMg"][self.compartment]),
+            )
+            return self._major_ms
+
+    @property
+    def is_exclude(self):
+        if self.delG_f == 0 or self.std_dev == 0:
+            return True
+        else:
+            return False
+
+    def abundant_ms(self, pH, I, temperature, pMg):
+        ddg_over_rts = [
+            (ms.transform(pH=pH, ionic_strength=I, T_in_K=temperature, pMg=pMg,), ms,)
+            for ms in self.microspecies
+        ]
+        min_ddg, min_ms = min(ddg_over_rts, key=lambda x: x[0])
+        return min_ms
+
     def get_equilibrator_accession(self):
         """ Get the equilibrator compound from api and populate the attributes of the thermo met
         """
@@ -174,16 +202,14 @@ class Thermo_met(Metabolite, Compound):
         """
         try:
             rc_index = rc_compound_ids.index(self.eq_id)
-            comp_vector = np.zeros(
-                Nc + Ng, dtype=float
-            )  # Define rc_compound_ids, num_rc, num_gc
+            comp_vector = np.zeros(Nc + Ng, dtype=float)
             comp_vector[rc_index] = 1
             return comp_vector
         except ValueError:
             if self.group_vector:
                 return np.hstack([np.zeros(Nc, dtype=float), self.group_vector])
             else:
-                return None
+                return np.zeros(Nc + Ng, dtype=float)
 
     def calculate_delG_f(self):
         """ Calculates the standard transformed Gibbs formation energy of compound using component contribution method. pH, Ionic strength values are taken from model's compartment_info attribute
