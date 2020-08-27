@@ -221,6 +221,9 @@ class thermo_reaction(Reaction):
     def delG_transport(self, value):
         self._delG_transport = value  # Update the consraints
 
+    def calculate_transport_charge(self):
+        pass
+
     def cal_stoichiometric_matrix(self):
         """ Reaction stoichiometry, two columns to represent forward and reverse
         

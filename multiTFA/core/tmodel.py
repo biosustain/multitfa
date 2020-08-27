@@ -182,6 +182,16 @@ class tmodel(Model):
             self._problematic_rxns = self.cal_problematic_rxns()
             return self._problematic_rxns
 
+    @property
+    def sphere_variables(self):
+        try:
+            return self._sphere_variables
+        except AttributeError:
+            self._sphere_variables = [
+                var for var in self.variables if var.name.startswith("Sphere_")
+            ]
+            return self._sphere_variables
+
     def cal_problematic_rxns(self):
         """ Reactions which can't be included in thermodynamic analysis
             reactions involving problematic metabolites
@@ -191,8 +201,9 @@ class tmodel(Model):
         """
 
         problematic_rxns = []
-        for met in self.problem_metabolites:
-            problematic_rxns.append(met.reactions)
+        for met in self.metabolites:
+            if met.is_exclude:
+                problematic_rxns.append(met.reactions)
 
         if len(problematic_rxns) > 0:
             problematic_rxns = frozenset.union(*problematic_rxns)
@@ -208,37 +219,6 @@ class tmodel(Model):
         except AttributeError:
             self._correlated_metabolites = correlated_pairs(self)
             return self._correlated_metabolites
-
-    def _populate_thermo_properties(self):
-
-        eq_api = ComponentContribution()
-        mus, sigmas = ([], [])
-        for met in self.metabolites:
-            api_cpd = eq_api.get_compound(met.Kegg_id)
-            if api_cpd is None:
-                mus.append(0)
-                sigmas.append(669 * [0])
-                continue
-
-            mu, sigma = eq_api.standard_dg_formation(api_cpd)
-            if sigma is None:
-                mus.append(0)
-                sigmas.append(669 * [0])
-                continue
-
-            transform = api_cpd.transform(
-                p_h=Q_(self.compartment_info["pH"][met.compartment]),
-                ionic_strength=Q_(
-                    str(self.compartment_info["I"][met.compartment]) + " M"
-                ),
-                temperature=Q_(str(default_T) + " K"),
-            )
-            mus.append(mu + transform)
-            sigmas.append(sigma.tolist())
-            sigmas = np.array(sigmas)
-            self._std_dG = mus
-            covariance = sigmas @ sigmas.T
-        return covariance
 
     def update_thermo_variables(self):
         """ Generates reaction and metabolite variables required for thermodynamic analysis and adds to the model
@@ -288,7 +268,18 @@ class tmodel(Model):
                 [delG_forward, delG_reverse, indicator_forward, indicator_reverse]
             )
 
-        # Now add the thermo variables associated with components in component contribution method. These variables will be same for all the models, doesn't depend on the metabolites, reactions of the model.
+        # Add variables for the independent components, number will be equal to rank of component covariance matrix
+        something = 669  # replace with rank of matrix
+        sphere_vars = np.array(
+            [
+                self.problem.Variable("Sphere_{}".format(i), lb=-1, ub=1)
+                for i in range(something)
+            ]
+        )
+
+        self.add_cons_vars(
+            sphere_vars.tolist()
+        )  # These variable are not used for box method, only for the MIQCP
 
     def calculate_S_matrix(self):
         """ Calculates the stoichiometric matrix (metabolites * Reactions)
@@ -341,6 +332,8 @@ class tmodel(Model):
             # Directionality constraint
             dir_f, dir_r = directionality(rxn)
             ind_f, ind_r = delG_indicator(rxn)
+
+            # Create two different constraints for box method and QC method
 
             # delG constraint
             concentration_term = concentration_exp(rxn)

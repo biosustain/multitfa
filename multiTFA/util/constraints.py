@@ -149,6 +149,33 @@ def concentration_exp(reaction):
     return conc_exp
 
 
+def delG_constraint_expression(reaction):
+    """[summary]
+
+    Args:
+        reaction ([type]): [description]
+
+    Returns:
+        [type]: [description]
+    """
+    concentration_term = sum(
+        stoic * metabolite.concentration_variable
+        for metabolite, stoic in iteritems(reaction.metabolites)
+        if metabolite.Kegg_id not in ["C00080", "cpd00067"]
+    )
+
+    error_term = sum(
+        stoic * metabolite.sphere_var_expression
+        for metabolite, stoic in iteritems(reaction.metabolites)
+        if metabolite.Kegg_id not in ["C00080", "cpd00067"]
+    )
+
+    return (
+        reaction.delG_forward - RT * concentration_term - error_term,
+        reaction.delG_reverse + RT * concentration_term + error_term,
+    )
+
+
 def formation_exp(reaction):
 
     return sum(
