@@ -5,11 +5,10 @@ from ..util.constraints import (
     directionality,
     delG_indicator,
     concentration_exp,
-    metabolite_variables,
-    reaction_variables,
     formation_exp,
     bounds_ellipsoid,
     quad_constraint,
+    delG_constraint_expression,
 )
 from copy import deepcopy, copy
 from ..util.dGf_calculation import calculate_dGf, cholesky_decomposition
@@ -101,9 +100,13 @@ class tmodel(Model):
 
         try:
             self._solver = deepcopy(model.solver)
+            self._miqc_solver = deepcopy(model.solver)
             # Cplex has an issue with deep copies
         except Exception:  # pragma: no cover
             self._solver = copy(model.solver)  # pragma: no cover
+            self._miqc_solver = copy(
+                model.solver
+            )  # creating this for adding different delG constraint to copy later to gurobi and cplex interfaces
 
         self.Exclude_list = Exclude_list
         self.solver.configuration.tolerances.integrality = tolerance_integral
@@ -231,13 +234,16 @@ class tmodel(Model):
         Reaction flux indicator variable
         """
         # Add metabolite concentration variable
+        conc_varibales = []
         for metabolite in self.metabolites:
             conc_variable = self.problem.Variable(
                 "lnc_{}".format(metabolite.id),
                 lb=np.log(metabolite.concentration_min),
                 ub=np.log(metabolite.concentration_max),
             )
-            self.add_cons_vars([conc_variable])
+            conc_varibales.append(conc_variable)
+        self.add_cons_vars(conc_varibales)
+        self._miqc_solver.add(conc_varibales)
 
         # Adding the thermo variables for reactions, delG_reaction and indicator (binary)
         for rxn in self.reactions:
@@ -267,6 +273,9 @@ class tmodel(Model):
             self.add_cons_vars(
                 [delG_forward, delG_reverse, indicator_forward, indicator_reverse]
             )
+            self._miqc_solver.add(
+                [delG_forward, delG_reverse, indicator_forward, indicator_reverse]
+            )  # for the MIQC constraints
 
         # Add variables for the independent components, number will be equal to rank of component covariance matrix
         something = 669  # replace with rank of matrix
@@ -277,7 +286,7 @@ class tmodel(Model):
             ]
         )
 
-        self.add_cons_vars(
+        self._miqc_solver.add(
             sphere_vars.tolist()
         )  # These variable are not used for box method, only for the MIQCP
 
@@ -323,7 +332,11 @@ class tmodel(Model):
         if len(self.variables) <= 2.5 * len(self.reactions):
             self.update_thermo_variables()
 
-        rxn_constraints = []
+        # Now we create common constraints between MIQC method and MIP methods and later add the delG constraint separately
+
+        rxn_common_constraints = []
+        delG_constraint_box = []
+        delG_constraint_QC = []
         # Now add reaction variables and generate remaining constraints
         for rxn in self.reactions:
             if rxn.id in self.Exclude_reactions:
@@ -333,9 +346,11 @@ class tmodel(Model):
             dir_f, dir_r = directionality(rxn)
             ind_f, ind_r = delG_indicator(rxn)
 
-            # Create two different constraints for box method and QC method
+            rxn_common_constraints.extend([dir_f, dir_r, ind_f, ind_r])
 
-            # delG constraint
+            # Create two different constraints for box method and MIQC method
+
+            # delG constraint for box
             concentration_term = concentration_exp(rxn)
             met_term = formation_exp(rxn)
 
@@ -356,15 +371,33 @@ class tmodel(Model):
                 ub=-rhs,
                 name="delG_{}".format(rxn.reverse_variable.name),
             )
-            rxn_constraints.extend([dir_f, dir_r, ind_f, ind_r, delG_f, delG_r])
+            delG_constraint_box.extend([delG_f, delG_r])
 
-        return rxn_constraints
+            # delG constraint for QC problem
+            forward_qc, reverse_qc = delG_constraint_expression(rxn)
+            delG_f_qc = self.problem.Constraint(
+                forward_qc,
+                lb=rhs,
+                ub=rhs,
+                name="delG_{}".format(rxn.forward_variable.name),
+            )
+            delG_r_qc = self.problem.Constraint(
+                reverse_qc,
+                lb=-rhs,
+                ub=-rhs,
+                name="delG_{}".format(rxn.reverse_variable.name),
+            )
+
+        return (
+            rxn_common_constraints + delG_constraint_box,
+            rxn_common_constraints + delG_constraint_QC,
+        )
 
     def update(self):
         """ Adds the generated thermo constaints to  model. Checks for duplication 
         """
-        constraints = self._generate_constraints()
-        for cons in constraints:
+        box_constraints, QC_constraints = self._generate_constraints()
+        for cons in box_constraints:
             if cons.name not in self.constraints:
                 self.add_cons_vars([cons])
             else:
@@ -375,6 +408,18 @@ class tmodel(Model):
                 )
                 self.solver.remove(cons.name)
                 self.add_cons_vars([cons])
+
+        for cons in QC_constraints:
+            if cons.name not in self._miqc_solver.constraints:
+                self._miqc_solver.add([cons])
+            else:
+                warn(
+                    "Constraint {} already in the model, removing previous entry".format(
+                        cons.name
+                    )
+                )
+                self._miqc_solver.remove(cons.name)
+                self._miqc_solver.add([cons])
 
     def optimize(self, solve_method="MIQC", raise_error=False):
         """ solves the model with given constraints. By default, we try to solve the model with quadratic constraints. Note: Quadratic constraints are supported by Gurobi/Cplex currently. if either of two solvers are not found, one can solve 'box' type MILP problem.
