@@ -1,5 +1,18 @@
 import numpy as np
+import scipy as sp
+import os
 from component_contribution import CCModelParameters
+
+PROTON_INCHI_KEY = "GPRLSGONYQIRFK-UHFFFAOYSA-N"
+
+data_dir = os.path.normpath(
+    (os.path.dirname(os.path.abspath(__file__))) + os.sep + os.pardir + os.sep + "Data"
+)
+
+covar_data = np.load(data_dir + os.sep + "covariance.npz")
+
+covariance = covar_data["covariance"]
+cholesky = covar_data["cholesky"]
 
 params = CCModelParameters.from_quilt()
 rc_compound_ids = params.train_G.index.tolist()
@@ -10,13 +23,6 @@ G = params.train_G.values
 Nc = params.dimensions.at["Nc", "number"]
 Ng = params.dimensions.at["Ng", "number"]
 
-C1 = MSE_rc * params.V_rc + MSE_gc * params.V_gc + MSE_inf * params.V_inf
-C2 = MSE_gc * params.P_N_rc @ G @ params.inv_GSWGS + MSE_inf * G @ params.P_N_gc
-C3 = MSE_gc * params.inv_GSWGS + MSE_inf * params.P_N_gc
-
-C = np.block([[C1, C2], [C2.T, C3]])
-C = C[: (Nc + Ng), : (Nc + Ng)]
-mu = np.hstack([params.dG0_cc, params.dG0_gc[:Ng]])
 
 R = 8.31e-3  # "kJ / mol / K"
 FARADAY = 96.485  # "kJ / mol"

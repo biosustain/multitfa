@@ -222,7 +222,28 @@ class thermo_reaction(Reaction):
         self._delG_transport = value  # Update the consraints
 
     def calculate_transport_charge(self):
-        pass
+
+        n_charge = {}
+        n_proton = {}
+        if len(self.compartments) > 1 and len(self.compartments) < 3:
+            for metabolite, stoic in iteritems(self.metabolites):
+                if metabolite.compartment in n_charge:
+                    n_charge[metabolite.compartment].append(stoic * metabolite.charge)
+                else:
+                    n_charge[metabolite.compartment] = [stoic * metabolite.charge]
+
+                if metabolite.compartment in n_proton:
+                    n_proton[metabolite.compartment].append(
+                        stoic * metabolite.elements["H"]
+                    )
+                else:
+                    n_charge[metabolite.compartment] = [
+                        stoic * metabolite.elements["H"]
+                    ]
+        return (
+            {key: sum(val) for key, val in n_charge.items()},
+            {key: sum(val) for key, val in n_proton.items()},
+        )
 
     def cal_stoichiometric_matrix(self):
         """ Reaction stoichiometry, two columns to represent forward and reverse

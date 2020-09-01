@@ -170,6 +170,13 @@ class Thermo_met(Metabolite, Compound):
             return False
 
     @property
+    def is_proton(self):
+        if self.inchi_key == PROTON_INCHI_KEY:
+            return True
+        else:
+            return False
+
+    @property
     def sphere_var_expression(self):
         return self.compound_vector @ cholesky @ self.model.sphere_variables
 
@@ -208,12 +215,14 @@ class Thermo_met(Metabolite, Compound):
             rc_index = rc_compound_ids.index(self.eq_id)
             comp_vector = np.zeros(Nc + Ng, dtype=float)
             comp_vector[rc_index] = 1
-            return comp_vector
+            return comp_vector[np.newaxis, :]
         except ValueError:
             if self.group_vector:
-                return np.hstack([np.zeros(Nc, dtype=float), self.group_vector])
+                comp_vector = np.hstack([np.zeros(Nc, dtype=float), self.group_vector])
+                return comp_vector[np.newaxis, :]
             else:
-                return np.zeros(Nc + Ng, dtype=float)
+                comp_vector = np.zeros(Nc + Ng, dtype=float)
+                return comp_vector[np.newaxis, :]
 
     def calculate_delG_f(self):
         """ Calculates the standard transformed Gibbs formation energy of compound using component contribution method. pH, Ionic strength values are taken from model's compartment_info attribute

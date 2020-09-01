@@ -1,6 +1,6 @@
 from .reaction import thermo_reaction
 import numpy as np
-from ..util.thermo_constants import Vmax, K, RT, default_T
+from ..util.thermo_constants import *
 from ..util.constraints import (
     directionality,
     delG_indicator,
@@ -29,6 +29,13 @@ from scipy import stats, linalg
 from equilibrator_api import ComponentContribution, Q_
 
 present_dir = os.path.normpath(os.path.dirname(os.path.abspath(__file__)))
+
+import logging
+
+logs_dir = present_dir + os.sep + os.pardir + os.sep + "logs"
+logging.basicConfig(
+    filename=logs_dir + os.sep + "thermo_model.log", level=logging.DEBUG
+)
 
 
 class tmodel(Model):
@@ -139,15 +146,7 @@ class tmodel(Model):
             cov_dg [np.ndarray] -- covariance matrix
         """
 
-        try:
-            return self._covariance_dG
-        except AttributeError:
-            self._covariance_dG = self._populate_thermo_properties()
-            return self._covariance_dG
-
-    @covariance_dG.setter
-    def covariance_dG(self, value):
-        self._covariance_dG = value
+        return covariance
 
     @property
     def problem_metabolites(self):
@@ -158,15 +157,12 @@ class tmodel(Model):
         Returns:
             List -- List of problematic metabolites
         """
-
         problematic_metabolites = []
-
         for met in self.metabolites:
-            if met.Kegg_id in ["C00080", "cpd00067"]:
+            if met.is_proton:
                 continue
-            if met.delG_f == 0 or np.isnan(met.delG_f):
+            if not met.compound_vector:
                 problematic_metabolites.append(met)
-
         return problematic_metabolites
 
     @property
@@ -191,29 +187,11 @@ class tmodel(Model):
             return self._sphere_variables
         except AttributeError:
             self._sphere_variables = [
-                var for var in self.variables if var.name.startswith("Sphere_")
+                var
+                for var in self._miqc_solver.variables
+                if var.name.startswith("Sphere_")
             ]
             return self._sphere_variables
-
-    def cal_problematic_rxns(self):
-        """ Reactions which can't be included in thermodynamic analysis
-            reactions involving problematic metabolites
-        
-        Returns:
-            List -- List of reactions excluded, this combined with 'Exclude_list' gives us 'Exclude_reactions'
-        """
-
-        problematic_rxns = []
-        for met in self.metabolites:
-            if met.is_exclude:
-                problematic_rxns.append(met.reactions)
-
-        if len(problematic_rxns) > 0:
-            problematic_rxns = frozenset.union(*problematic_rxns)
-            problems = [i.id for i in problematic_rxns]
-            return problems
-        else:
-            return []
 
     @property
     def correlated_metabolites(self):
@@ -289,33 +267,6 @@ class tmodel(Model):
         self._miqc_solver.add(
             sphere_vars.tolist()
         )  # These variable are not used for box method, only for the MIQCP
-
-    def calculate_S_matrix(self):
-        """ Calculates the stoichiometric matrix (metabolites * Reactions)
-
-        Returns:
-            Tuple  -- Tuple of reaction order, np.ndarray of stoichiometric matrix
-        """
-
-        n_reactions = len(self.reactions)
-        n_metabolites = len(self.metabolites)
-        S_matrix = np.zeros((2 * n_reactions, n_metabolites))
-
-        reaction_index = 0
-        rxn_order = []
-        for reaction in self.reactions:
-            rxn_order.append(reaction.forward_variable.name)
-            rxn_order.append(reaction.reverse_variable.name)
-            for metabolite, stoic in iteritems(reaction.metabolites):
-                S_matrix[reaction_index, self.metabolites.index(metabolite)] = stoic
-                S_matrix[
-                    reaction_index + 1, self.metabolites.index(metabolite)
-                ] = -stoic
-            reaction_index = reaction_index + 2
-
-        S = np.transpose(S_matrix)
-
-        return rxn_order, S
 
     def _generate_constraints(self):
         """ Generates thermodynamic constraints for the model. See util/constraints.py for detailed explanation of constraints
@@ -460,6 +411,101 @@ class tmodel(Model):
 
             return solution
 
+    def Quadratic_constraint(self):
+        """ Adds Quadratic constraint to the model's Gurobi/Cplex Interface. 
+        (x-mu).T @ inv(cov) @ (x-mu) <= chi-square
+        Note: This one creates one ellipsoidal constraint for all the metabolites that has non zero or non 'nan' formation energy, irrespective of the magnitude of variance. if the model is infeasible after adding this constraint, refer to util_func.py, find_correlated metabolites to add different ellipsoidal constraints to high variance and normal compounds to avoid possible numerical issues.
+        
+        Unable to retrieve quadratic constraints in Gurobi model, can see the QC when printed.
+
+        :raises NotImplementedError: Implemented only for Gurobi/Cplex interfaces.
+        :return: [description]
+        :rtype: [type]
+        """
+
+        if self.solver.__class__.__module__ == "optlang.gurobi_interface":
+
+            solver_interface = self._miqc_solver.copy()
+
+            sphere_variables = [
+                var
+                for var in solver_interface.getVars()
+                if var.VarName.startswith("Sphere_")
+            ]
+
+            solver_interface.addQConstr(
+                np.sum(np.square(np.array(sphere_variables))) <= 1, name="unit_normal"
+            )
+
+            solver_interface.update()
+
+            return solver_interface
+
+        elif self.solver.__class__.__module__ == "optlang.cplex_interface":
+
+            from cplex import Cplex, SparseTriple
+
+            tmp_dir = present_dir + os.sep + os.pardir + os.sep + "tmp"
+
+            if not os.path.exists(tmp_dir):
+                os.makedirs(tmp_dir)
+
+            rand_str = "".join(choices(string.ascii_lowercase + string.digits, k=6))
+            # write cplex model to mps file and re read
+            self.solver.problem.write(tmp_dir + os.sep + rand_str + ".mps")
+            # Instantiate Cplex model
+            cplex_model = Cplex()
+            cplex_model.read(tmp_dir + os.sep + rand_str + ".mps")
+
+            Sphere_var_names = [
+                var_name
+                for var_name in cplex_model.variables.get_names()
+                if var_name.startswith("Sphere_")
+            ]
+
+            # Add the Sphere constraint
+            cplex_model.quadratic_constraints.add(
+                quad_expr=SparseTriple(
+                    ind1=Sphere_var_names,
+                    ind2=Sphere_var_names,
+                    val=len(Sphere_var_names) * [1],
+                ),
+                rhs=1,
+                name="unit_normal",
+            )
+
+            return cplex_model
+
+        else:
+            raise NotImplementedError("Current solver doesn't support QC")
+
+    def calculate_S_matrix(self):
+        """ Calculates the stoichiometric matrix (metabolites * Reactions)
+
+        Returns:
+            Tuple  -- Tuple of reaction order, np.ndarray of stoichiometric matrix
+        """
+
+        n_reactions = len(self.reactions)
+        n_metabolites = len(self.metabolites)
+        S_matrix = np.zeros((2 * n_reactions, n_metabolites))
+
+        reaction_index = 0
+        rxn_order = []
+        for reaction in self.reactions:
+            rxn_order.append(reaction.forward_variable.name)
+            rxn_order.append(reaction.reverse_variable.name)
+            for metabolite, stoic in iteritems(reaction.metabolites):
+                S_matrix[reaction_index, self.metabolites.index(metabolite)] = stoic
+                S_matrix[
+                    reaction_index + 1, self.metabolites.index(metabolite)
+                ] = -stoic
+            reaction_index = reaction_index + 2
+
+        S = np.transpose(S_matrix)
+
+        return rxn_order, S
+
     def concentration_ratio_constraints(self, ratio_metabolites, ratio_lb, ratio_ub):
         """ Function to add metabolite concentration ratio constraints to the model. E.g. ratio of redox pairs
         
@@ -484,277 +530,25 @@ class tmodel(Model):
 
             self.add_cons_vars(ratio_constraint)
 
-    def Quadratic_constraint(self):
-        """ Adds Quadratic constraint to the model's Gurobi/Cplex Interface. 
-        (x-mu).T @ inv(cov) @ (x-mu) <= chi-square
-        Note: This one creates one ellipsoidal constraint for all the metabolites that has non zero or non 'nan' formation energy, irrespective of the magnitude of variance. if the model is infeasible after adding this constraint, refer to util_func.py, find_correlated metabolites to add different ellipsoidal constraints to high variance and normal compounds to avoid possible numerical issues.
+    def cal_problematic_rxns(self):
+        """ Reactions which can't be included in thermodynamic analysis
+            reactions involving problematic metabolites
         
-        Unable to retrieve quadratic constraints in Gurobi model, can see the QC when printed.
-
-        :raises NotImplementedError: Implemented only for Gurobi/Cplex interfaces.
-        :return: [description]
-        :rtype: [type]
+        Returns:
+            List -- List of reactions excluded, this combined with 'Exclude_list' gives us 'Exclude_reactions'
         """
 
-        # Problem metabolites, if met.delGf == 0 or cholesky row is zeros then delete them
-        cov_mets, cov_met_inds, non_duplicate = [], [], []
-
-        # Identify problematic high variance metabolites
-        #  Find metabolites that are present in different compartments and make sure they get one row/col in covariance matrix
+        problematic_rxns = []
         for met in self.metabolites:
-            if (
-                met.delG_f == 0
-                or np.isnan(met.delG_f)
-                or met.std_dev == 0
-                # or met.std_dev > 50
-                # or met.id in correlated_met_values
-                or met.id in self.correlated_metabolites
-            ):
-                continue
+            if met.is_exclude:
+                problematic_rxns.append(met.reactions)
 
-            if met.Kegg_id in non_duplicate:
-                continue
-            else:
-                cov_met_inds.append(self.metabolites.index(met))
-                cov_mets.append(met)
-                non_duplicate.append(met.Kegg_id)
-
-        # Pick indices of non zero non nan metabolites
-        cov_dg = self.covariance_dG[:, cov_met_inds]
-        cov_dg = cov_dg[cov_met_inds, :]
-
-        # Now calculate cholesky of the cov_dg
-        if not isPD(cov_dg):
-            cov_dg_pd = nearestPD(cov_dg)
+        if len(problematic_rxns) > 0:
+            problematic_rxns = frozenset.union(*problematic_rxns)
+            problems = [i.id for i in problematic_rxns]
+            return problems
         else:
-            cov_dg_pd = cov_dg
-
-        chol_cov_dg = np.linalg.cholesky(cov_dg_pd)
-        chisq_val = stats.chi2.isf(q=0.05, df=len(cov_dg_pd))
-
-        # Calculate ellipsoid box bounds and set to variables
-        bounds = bounds_ellipsoid(cov_dg_pd)  # Check for posdef cov_dg
-
-        if self.solver.__class__.__module__ == "optlang.gurobi_interface":
-            from gurobipy import QuadExpr
-
-            solver_interface = self.solver.problem.copy()
-
-            # Adding the covariance constraint to correlated metabolites
-            for met_id in self.correlated_metabolites:
-                primary_met = self.metabolites.get_by_id(met_id)
-                ind_met = self.metabolites.index(primary_met)
-
-                for i in range(len(self.correlated_metabolites[met_id])):
-                    paired_met_id = list(self.correlated_metabolites[met_id])[i]
-                    paired_met = self.metabolites.get_by_id(paired_met_id)
-
-                    if (
-                        (primary_met.Kegg_id == paired_met.Kegg_id)
-                        or np.isnan(primary_met.std_dev)
-                        or np.isnan(paired_met.std_dev)
-                    ):
-                        continue
-                    ind_paired_met = self.metabolites.index(paired_met)
-                    covar_pair = self.covariance_dG[ind_met, ind_paired_met]
-                    var_difference = (
-                        primary_met.std_dev ** 2
-                        + paired_met.std_dev ** 2
-                        - 2 * covar_pair
-                    )
-                    lhs_covar = solver_interface.getVarByName(
-                        primary_met.compound_variable.name
-                    ) - solver_interface.getVarByName(paired_met.compound_variable.name)
-
-                    cons_name_lb = "covar_{}_{}_lb".format(
-                        primary_met.id, paired_met.id
-                    )
-                    cons_name_ub = "covar_{}_{}_ub".format(
-                        primary_met.id, paired_met.id
-                    )
-
-                    solver_interface.addConstr(
-                        lhs_covar >= -1.96 * var_difference, name=cons_name_lb
-                    )
-                    solver_interface.addConstr(
-                        lhs_covar <= 1.96 * var_difference, name=cons_name_ub
-                    )
-                    solver_interface.update()
-
-            sphere_vars = []
-            for metabolite in cov_mets:
-                solver_interface.addVar(
-                    lb=-1, ub=1, name="Sphere_{}".format(metabolite.Kegg_id)
-                )
-
-                # Update the formation error variables to represent the eigen value vactor pair
-                solver_interface.getVarByName(
-                    "met_{}".format(metabolite.Kegg_id)
-                ).LB = -bounds[cov_mets.index(metabolite)]
-
-                solver_interface.getVarByName(
-                    "met_{}".format(metabolite.Kegg_id)
-                ).UB = bounds[cov_mets.index(metabolite)]
-
-            solver_interface.update()
-
-            sphere_vars = [
-                solver_interface.getVarByName("Sphere_{}".format(met.Kegg_id))
-                for met in cov_mets
-            ]
-
-            sphere_vars_np = np.array(sphere_vars)
-            sphere_vars_np = sphere_vars_np[np.newaxis, :]
-
-            # Add the spherical quadratic constraint
-            lhs_q_expr = QuadExpr()
-            lhs_q_expr.addTerms(
-                len(sphere_vars) * [1], list(sphere_vars), list(sphere_vars)
-            )
-            solver_interface.addQConstr(lhs_q_expr <= 1, name="Quadratic")
-
-            # Now define relation between ellipse error vars and sphere vars
-            ellipse_error_vars = [
-                solver_interface.getVarByName("met_{}".format(met.Kegg_id))
-                for met in cov_mets
-            ]
-
-            sph_relation = np.sqrt(chisq_val) * chol_cov_dg @ sphere_vars_np.T
-
-            for i in range(len(ellipse_error_vars)):
-                # print(ellipse_error_vars[i].VarName)
-                lhs_expr = ellipse_error_vars[i] - sph_relation[i][0]
-                varname = "relation_{}".format(ellipse_error_vars[i].VarName)
-                # print(lhs_expr, varname)
-                solver_interface.addConstr(
-                    lhs_expr == 0, name=varname,
-                )
-            solver_interface.update()
-
-            return solver_interface
-
-        elif self.solver.__class__.__module__ == "optlang.cplex_interface":
-
-            from cplex import Cplex, SparseTriple, SparsePair
-
-            tmp_dir = present_dir + os.sep + os.pardir + os.sep + "tmp"
-
-            if not os.path.exists(tmp_dir):
-                os.makedirs(tmp_dir)
-
-            rand_str = "".join(choices(string.ascii_lowercase + string.digits, k=6))
-            # write cplex model to mps file and re read
-            self.solver.problem.write(tmp_dir + os.sep + rand_str + ".mps")
-            # Instantiate Cplex model
-            cplex_model = Cplex()
-            cplex_model.read(tmp_dir + os.sep + rand_str + ".mps")
-
-            # Add the covariance constraints to the correlated metabolites
-            for met_id in self.correlated_metabolites:
-                primary_met = self.metabolites.get_by_id(met_id)
-                ind_met = self.metabolites.index(primary_met)
-
-                for i in range(len(self.correlated_metabolites[met_id])):
-                    paired_met_id = list(self.correlated_metabolites[met_id])[i]
-                    paired_met = self.metabolites.get_by_id(paired_met_id)
-
-                    if (
-                        (primary_met.Kegg_id == paired_met.Kegg_id)
-                        or np.isnan(primary_met.std_dev)
-                        or np.isnan(paired_met.std_dev)
-                    ):
-                        continue
-                    ind_paired_met = self.metabolites.index(paired_met)
-                    covar_pair = self.covariance_dG[ind_met, ind_paired_met]
-                    var_difference = (
-                        primary_met.std_dev ** 2
-                        + paired_met.std_dev ** 2
-                        - 2 * covar_pair
-                    )
-                    cons_name_lb = "covar_{}_{}_lb".format(
-                        primary_met.id, paired_met.id
-                    )
-                    cons_name_ub = "covar_{}_{}_ub".format(
-                        primary_met.id, paired_met.id
-                    )
-
-                    cplex_model.linear_constraints.add(
-                        lin_expr=SparsePair(
-                            ind=[
-                                primary_met.compound_variable.name,
-                                paired_met.compound_variable.name,
-                            ],
-                            val=[1, -1],
-                        ),
-                        senses=["G"],
-                        rhs=-1.96 * var_difference,
-                        names=[cons_name_lb],
-                    )
-
-                    cplex_model.linear_constraints.add(
-                        lin_expr=SparsePair(
-                            ind=[
-                                primary_met.compound_variable.name,
-                                paired_met.compound_variable.name,
-                            ],
-                            val=[1, -1],
-                        ),
-                        senses=["L"],
-                        rhs=1.96 * var_difference,
-                        names=[cons_name_ub],
-                    )
-
-            Sphere_var_names = []
-            for met in cov_mets:
-                # Adjust the formation error variable bounds with eigen value, vector pair
-                err_var_name = "met_{}".format(met.Kegg_id)
-                cplex_model.variables.set_lower_bounds(
-                    err_var_name, -bounds[cov_mets.index(met)]
-                )
-                cplex_model.variables.set_upper_bounds(
-                    err_var_name, bounds[cov_mets.index(met)]
-                )
-
-                # Now define the variables for spherical variables for cov_mets
-                Sphere_var_names.append("Sphere_{}".format(met.Kegg_id))
-
-            cplex_model.variables.add(
-                names=Sphere_var_names,
-                lb=len(Sphere_var_names) * [-1],
-                ub=len(Sphere_var_names) * [1],
-            )
-
-            # Add the Sphere constraint
-            cplex_model.quadratic_constraints.add(
-                quad_expr=SparseTriple(
-                    ind1=Sphere_var_names,
-                    ind2=Sphere_var_names,
-                    val=len(Sphere_var_names) * [1],
-                ),
-                rhs=1,
-                name="ellipse",
-            )
-
-            # Add the linear constraints to draw relation between formation error variables and the sphere variables using cholesky matrix
-            ellipse_error_vars = ["met_{}".format(met.Kegg_id) for met in cov_mets]
-
-            for i in range(len(ellipse_error_vars)):
-                var_names = [ellipse_error_vars[i]]
-                var_names.extend(Sphere_var_names)
-                coeffs = [1]
-                coeffs.extend(list(-np.sqrt(chisq_val) * chol_cov_dg[i, :]))
-                cons_name = "relation_{}".format(ellipse_error_vars[i])
-                _ = cplex_model.linear_constraints.add(
-                    lin_expr=[SparsePair(ind=var_names, val=coeffs)],
-                    senses="E",
-                    rhs=[0],
-                    names=[cons_name],
-                )
-
-            return cplex_model
-
-        else:
-            raise NotImplementedError("Current solver doesn't support QC")
+            return []
 
     def export_MIP_matrix(self):
         """ Creates matrices structure of the MILP problem. Quadratic constraint is not exported.
