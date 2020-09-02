@@ -7,7 +7,7 @@ from ..util.thermo_constants import FARADAY
 from copy import deepcopy
 from ..util.thermo_constants import K, Vmax, RT, default_T
 from copy import copy, deepcopy
-from numpy import transpose
+import numpy as np
 
 
 class thermo_reaction(Reaction):
@@ -164,58 +164,12 @@ class thermo_reaction(Reaction):
         self._delG_prime = value  # Update the value in model constraints
 
     @property
-    def net_charge_transport(self):
-        try:
-            return self._net_charge_transport
-        except AttributeError:
-            self._net_charge_transport = self.cal_net_charge()  # Adjust this
-            return self._net_charge_transport
-
-    @net_charge_transport.setter
-    def net_charge_transport(self, value):
-        self._net_charge_transport = value  # Same again
-
-    @property
-    def is_Trans(self):
-        try:
-            return self._is_Trans
-        except AttributeError:
-            if len(self.transport_metabolites) > 0:
-                self._is_Trans = True
-            else:
-                self._is_Trans = False
-
-            return self._is_Trans
-
-    @property
-    def transport_metabolites(self):
-        try:
-            return self._transport_metabolites
-        except AttributeError:
-            self._transport_metabolites = self.find_transportMets()
-            return self._transport_metabolites
-
-    @property
     def delG_transport(self):
         try:
             return self._delG_transport
         except AttributeError:
-            if self.is_Trans:
-                net_charge, direction = self.net_charge_transport
-                # print(self.id, net_charge)
-                ref_comp, target_comp = next(iter(direction.items()))
-                # print(ref_comp, target_comp)
-                # print(net_charge, direction)
-                self._delG_transport = (
-                    net_charge
-                    * FARADAY
-                    * self.model.membrane_potential[ref_comp][target_comp]
-                    * 1e-3
-                )
-            else:
-                self._delG_transport = 0
-
-        return self._delG_transport
+            self._delG_transport = self.calculate_delG_transport()
+            return self._delG_transport
 
     @delG_transport.setter
     def delG_transport(self, value):
@@ -225,6 +179,7 @@ class thermo_reaction(Reaction):
 
         n_charge = {}
         n_proton = {}
+        # print("lol1")
         if len(self.compartments) > 1 and len(self.compartments) < 3:
             for metabolite, stoic in iteritems(self.metabolites):
                 if metabolite.compartment in n_charge:
@@ -237,13 +192,38 @@ class thermo_reaction(Reaction):
                         stoic * metabolite.elements["H"]
                     )
                 else:
-                    n_charge[metabolite.compartment] = [
+                    n_proton[metabolite.compartment] = [
                         stoic * metabolite.elements["H"]
                     ]
         return (
             {key: sum(val) for key, val in n_charge.items()},
             {key: sum(val) for key, val in n_proton.items()},
         )
+
+    def calculate_delG_transport(self):
+        if len(self.compartments) != 2:
+            return 0
+        else:
+            charge_dict, proton_dict = self.calculate_transport_charge()
+            comps = list(charge_dict.keys())
+
+            electro_static_delG = (
+                charge_dict[comps[0]]
+                * FARADAY
+                * self.model.membrane_potential[comps[1]][comps[0]]
+                * 1e-3
+            )
+
+            proton_potential_adjustment = (
+                proton_dict[comps[0]]
+                * np.log(10)
+                * (
+                    self.model.compartment_info["pH"][comps[1]]
+                    - self.model.compartment_info["pH"][comps[0]]
+                )
+            )
+
+            return electro_static_delG + proton_potential_adjustment
 
     def cal_stoichiometric_matrix(self):
         """ Reaction stoichiometry, two columns to represent forward and reverse
@@ -255,9 +235,7 @@ class thermo_reaction(Reaction):
         S_matrix = zeros((1, len(self.model.metabolites)))
         for metabolite, stoic in iteritems(self.metabolites):
             S_matrix[0, self.model.metabolites.index(metabolite)] = stoic
-        stoichio = transpose(S_matrix)
-
-        return stoichio
+        return S_matrix.T
 
     def get_coefficient(self, metabolite_id):
         _id_to_metabolites = {m.id: m for m in self.metabolites}
@@ -276,125 +254,4 @@ class thermo_reaction(Reaction):
             rxn_delG += stoic * float(metabolite.delG_f)
 
         return rxn_delG
-
-    def find_transportMets(self):
-        """ Find the pairs of transport metabolites in a reaction. If a metabolite is present in more than one compartment, then the metabolite is considered as transport metabolite.
-
-        Returns:
-            Dict: key , value pair of transport metabolites in different compartments
-
-            Example
-            atp_c + h_c --> atp_e + h_c
-            
-            transport_pair = {atp_c : atp_e}
-        """
-
-        # First create a Kegg_id:metabolite dict for prodcucts
-        Kegg_prod_map = {met.Kegg_id: met for met in self.products}
-
-        # Now look for the products Kegg id's in reactants and make sure they are in different compartments
-        transport_pair = {}
-        for reactant in self.reactants:
-            if reactant.Kegg_id in Kegg_prod_map:
-                if reactant.compartment != Kegg_prod_map[reactant.Kegg_id].compartment:
-                    transport_pair[reactant] = Kegg_prod_map[reactant.Kegg_id]
-
-        return transport_pair
-
-    def _proton_balance(self):
-
-        """ Function to calculate if proton balance for some weird reactions like ATP synthase where protons are moved across membrane and some of them are consumed in the reaction
-        """
-
-        compartments = list(set([met.compartment for met in self.metabolites]))
-
-        comp1, comp2 = ([], [])
-        for metabolite in self.metabolites:
-            num_H = 0
-            if "H" in metabolite.elements:
-                num_H = metabolite.elements["H"]
-
-            if metabolite.compartment == compartments[0]:
-                coeff = self.get_coefficient(metabolite.id)
-                comp1.append(coeff * num_H)
-
-            elif metabolite.compartment == compartments[1]:
-                coeff = self.get_coefficient(metabolite.id)
-                comp2.append(coeff * num_H)
-            else:
-                pass
-            # assert abs(sum(comp1)) == abs(sum(comp2))
-
-        return abs(sum(comp1))
-
-    def _iscomplex_transport(self):
-
-        is_complex = False
-        proton_compounds = [
-            met for met in self.metabolites if met.Kegg_id in ["C00080", "cpd00067"]
-        ]
-        in_coeff = self.get_coefficient(proton_compounds[0].id)
-        out_coeff = self.get_coefficient(proton_compounds[1].id)
-
-        if abs(in_coeff) != abs(out_coeff):
-            is_complex = True
-
-        return is_complex
-
-    def _simple_proton(self):
-        if not self._iscomplex_transport():
-            proton_compounds = [
-                met for met in self.metabolites if met.Kegg_id in ["C00080", "cpd00067"]
-            ]
-            in_coeff = self.get_coefficient(proton_compounds[0].id)
-            out_coeff = self.get_coefficient(proton_compounds[1].id)
-            assert abs(in_coeff) == abs(out_coeff)
-
-        return abs(in_coeff)
-
-    def _proton_transport(self):
-        if self._iscomplex_transport():
-            h_transport = self._proton_balance()
-        else:
-            h_transport = self._simple_proton()
-        return h_transport
-
-    def cal_net_charge(self):
-
-        """ Calculates the transport Gibbs free energy of reactions
-        delG_transport = net_charge * FARADAY * del_psi 
-
-        Returns:
-            Float -- transport Gibbs free energy of reaction
-        """
-        net_charge_transported = 0
-        reference_comp, transported_comp = ("", "")
-
-        if self.is_Trans:
-            if len(self.transport_metabolites) > 0:
-                for metabolite in self.transport_metabolites:
-                    reference_comp = metabolite.compartment
-                    transported_comp = self.transport_metabolites[
-                        metabolite
-                    ].compartment
-
-                    break
-
-                net_charge = []
-
-                for transported in self.transport_metabolites:
-                    if transported.Kegg_id in ["C00080", "cpd00067"]:
-                        coeff = self._proton_transport()
-                    else:
-                        coeff = self.get_coefficient(transported.id)
-
-                    if transported.compartment == reference_comp:
-                        charge_transported = abs(coeff) * transported.charge
-                        net_charge.append(charge_transported)
-                    else:
-                        charge_transported = -abs(coeff) * transported.charge
-                        net_charge.append(charge_transported)
-                net_charge_transported = sum(net_charge)
-
-        return (net_charge_transported, {reference_comp: transported_comp})
 
