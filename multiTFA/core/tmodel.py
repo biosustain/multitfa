@@ -28,17 +28,39 @@ import string
 from scipy import stats, linalg
 from equilibrator_api import ComponentContribution, Q_
 
-present_dir = os.path.normpath(os.path.dirname(os.path.abspath(__file__)))
+# present_dir = os.path.normpath(os.path.dirname(os.path.abspath(__file__)))
+cwd = os.getcwd()
 
 import logging
 
-logs_dir = present_dir + os.sep + os.pardir + os.sep + "logs"
+logs_dir = cwd + os.sep + "logs"
+if not os.path.exists(logs_dir):
+    os.makedirs(logs_dir)
+
 logging.basicConfig(
     filename=logs_dir + os.sep + "thermo_model.log", level=logging.DEBUG
 )
 
 
 class tmodel(Model):
+    """tmodel is Class representation of thermodynamic metabolic flux analysis model. This class adds attributes and methods required for thermodynamic analysis of a COBRA model. 
+
+        Parameters
+        ----------
+        Model : cobra.core.model
+            A Cobra model class
+        model : instance of cobra.core.model
+            tmodel requires a cobra model instance as input. Thermodynamic properties are added based on the stoichiometry of the underlying Cobra model
+        Exclude_list : list, optional
+            List of reactions user wants to exclude from thermodynamic analysis, For example, Exchange/Demand reactions,  by default []
+        tolerance_integral : float, optional
+            integrality tolerance of for the model , by default 1e-9
+        compartment_info : pd.Dataframe, optional
+            a pandas Dataframe containing the compartment information like pH, ionic strength, magnesium concentration etc. Row indices should be the compartment symbol and column indices should be property, by default None
+        membrane_potential : pd.Dataframe, optional
+            a pandas Dataframe containing membrane electrostatic potential information to calculate the delG of muli compartment transport. Values are read in a sequence that column represent the first compartment and row represent the compartment being transported to. Row & column indices should be the compartment symbols , by default None
+        """
+
     def __init__(
         self,
         model,
@@ -46,28 +68,7 @@ class tmodel(Model):
         tolerance_integral=1e-9,
         compartment_info=None,
         membrane_potential=None,
-        debug=False,
     ):
-        """ Class representation of tMFA model, dependeds on cobra model class.
-        
-        Arguments:
-            model {Cobra model object} -- Cobra model 
-        
-        Keyword Arguments:
-            Kegg_map {dict} -- Dictionary of metabolite id to Kegg/seed identifiers of all metabolites in the model (default: {{}})
-            
-            Exclude_list {list} -- Reaction ids that needs to be excluded from thermodynamic analysis (e.g: exchange/sinks)  (default: {[]})
-            
-            pH_I_dict {dict} -- Dictionary of pH, ionic strength of different compartments, parameters for all the compartments needs to be specified  (default: {{}})
-            
-            concentration_dict {dict} -- Dictionary of min/max concentrations of metabolites where available (default: {{'min':{},'max':{}}})
-            
-            tolerance_integral {float} -- Integral tolerance of the solver (We recommend 1e-9 for tmfa problems) (default: {1e-9})
-            
-            del_psi_dict {dict} -- membrane potential dictionary for all the compartments in the model (default: {{}})
-            
-            debug {bool} -- Debugging flag (default: {False})
-        """
 
         self.compartment_info = compartment_info
         self.membrane_potential = membrane_potential
@@ -120,6 +121,13 @@ class tmodel(Model):
 
     @property
     def gurobi_interface(self):
+        """multiTFA at the moment supports two solvers Gurobi/Cplex for solving quadratic constraint problems. Optlang doesn't support adding QC, so we chose to add two separate solver interafaces to tmodel. This is gurobi solver interface. In addition to the linear constraints, this interface contain one extra constraint to represent sphere 
+
+        Returns
+        -------
+        gurobi model object
+            Gurobi model containing the QC
+        """
         try:
             return self._gurobi_interface
         except AttributeError:
@@ -130,6 +138,13 @@ class tmodel(Model):
 
     @property
     def cplex_interface(self):
+        """ Cplex interface to support QC
+
+        Returns
+        -------
+        Cplex model
+            Cplex model containing QC
+        """
         try:
             return self._cplex_interface
         except AttributeError:
@@ -139,23 +154,23 @@ class tmodel(Model):
 
     @property
     def covariance_dG(self):
-        """calculates the covariance matrix of Gibbs free energy of the metabolites
-        
-        Returns:
-            std_dg [np.ndarray] -- std delg of all metabolites
-            cov_dg [np.ndarray] -- covariance matrix
-        """
+        """Covariance matrix of the reactants and groups from component contribution method. Borrowed from equilibrator-api. This covariance matrix is used for sampling from multi-dimensional space. 
+        Note: This matrix is rank-deficient matrix
 
+        Returns
+        -------
+        np.ndarray
+            covariance matrix of the components
+        """
         return covariance
 
     @property
     def problem_metabolites(self):
-        """ Metabolites for which we can't calculate the Gibbs free energy of formation using component contribution method
-
-        Metabolites are considered problematic metabolites if whole row in cholesky matrix is zero
+        """ Metabolites for which we can't calculate the Gibbs free energy of formation using component contribution method. If the metabolite is not covered by reactant/group contribution method, then we have to write the metabolite and corresponding reactions from tMFA analysis or have to lump the reactions.
         
         Returns:
-            List -- List of problematic metabolites
+            List
+                List of metabolite not covered by component contribution
         """
         problematic_metabolites = []
         for met in self.metabolites:
@@ -167,6 +182,13 @@ class tmodel(Model):
 
     @property
     def Exclude_reactions(self):
+        """Reactions that needs to be excluded from tMFA. This list includes both user excluded reactions and reactions involving non-coverage metabolites
+
+        Returns
+        -------
+        List
+            List of reactions Excluded from thermo analysis
+        """
         try:
             return self._Exclude_reactions
         except AttributeError:
@@ -175,6 +197,13 @@ class tmodel(Model):
 
     @property
     def problematic_rxns(self):
+        """List of reactions containing non-covered metabolites. These can either be written out or lumped
+
+        Returns
+        -------
+        List
+            List of non-covered reactions
+        """
         try:
             return self._problematic_rxns
         except AttributeError:
@@ -183,6 +212,13 @@ class tmodel(Model):
 
     @property
     def sphere_variables(self):
+        """List of independent variables that represent the whole solution space. The covariance matrix is rank-deficient. Dependent variables can be written in linear combination of independent variables using cholesky matrix.
+
+        Returns
+        -------
+        List
+            List of optlang interface variables
+        """
         try:
             return self._sphere_variables
         except AttributeError:
@@ -195,6 +231,13 @@ class tmodel(Model):
 
     @property
     def correlated_metabolites(self):
+        """Metabolites that are highly correlated thermodynamically, for example they share many common groups or co-occur all the time in training data.
+
+        Returns
+        -------
+        Dict
+            Dictionary of correlated metabolites
+        """
         try:
             return self._correlated_metabolites
         except AttributeError:
@@ -202,14 +245,12 @@ class tmodel(Model):
             return self._correlated_metabolites
 
     def update_thermo_variables(self):
-        """ Generates reaction and metabolite variables required for thermodynamic analysis and adds to the model
+        """ Generates reaction and metabolite variables required for thermodynamic analysis and adds to the model. We use two different methods to solve the tMFA problem. Traditional 'box' method employs MILP problem where components are allowed to vary between some s.d from mean. The other method uses MIQCP structure to use covariance matrix to capture covariance. Two methods share some common variables, where as MIQCP method requires independent variables to sample from original solution space.
 
-        Variables generated --
+        Common Variables: delG_reaction, indicator_reaction, concentration_metabolite
+        MILP variables: metabolite error 
+        MIQCP variables: independent component variables
 
-        Metabolite concentration variable
-        Metabolite confidence variable
-        Reaction delG variable
-        Reaction flux indicator variable
         """
         # Add metabolite concentration variable
         conc_varibales = []

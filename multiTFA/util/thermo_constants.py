@@ -13,6 +13,7 @@ covar_data = np.load(data_dir + os.sep + "covariance.npz")
 
 covariance = covar_data["covariance"]
 cholesky = covar_data["cholesky"]
+chi2_value = sp.stats.chi2.isf(q=0.05, df=cholesky.shape[1])
 
 params = CCModelParameters.from_quilt()
 rc_compound_ids = params.train_G.index.tolist()
@@ -22,6 +23,7 @@ MSE_inf = 1e10
 G = params.train_G.values
 Nc = params.dimensions.at["Nc", "number"]
 Ng = params.dimensions.at["Ng", "number"]
+mu = np.hstack([params.dG0_cc, params.dG0_gc[:Ng]])
 
 
 R = 8.31e-3  # "kJ / mol / K"

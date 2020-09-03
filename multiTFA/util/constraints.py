@@ -1,6 +1,6 @@
 from six import iteritems
 import numpy as np
-from .thermo_constants import Vmax, RT, K
+from .thermo_constants import *
 from scipy.stats import chi2
 from scipy import linalg
 from .posdef import nearestPD, isPD
@@ -144,7 +144,7 @@ def concentration_exp(reaction):
     conc_exp = sum(
         stoic * metabolite.concentration_variable
         for metabolite, stoic in iteritems(reaction.metabolites)
-        if metabolite.Kegg_id not in ["C00080", "cpd00067"]
+        if metabolite.inchi_key != PROTON_INCHI_KEY
     )
     return conc_exp
 
@@ -161,13 +161,13 @@ def delG_constraint_expression(reaction):
     concentration_term = sum(
         stoic * metabolite.concentration_variable
         for metabolite, stoic in iteritems(reaction.metabolites)
-        if metabolite.Kegg_id not in ["C00080", "cpd00067"]
+        if metabolite.inchi_key != PROTON_INCHI_KEY
     )
 
     error_term = sum(
         stoic * metabolite.sphere_var_expression
         for metabolite, stoic in iteritems(reaction.metabolites)
-        if metabolite.Kegg_id not in ["C00080", "cpd00067"]
+        if metabolite.inchi_key != PROTON_INCHI_KEY
     )
 
     return (

@@ -178,7 +178,12 @@ class Thermo_met(Metabolite, Compound):
 
     @property
     def sphere_var_expression(self):
-        return self.compound_vector @ cholesky @ self.model.sphere_variables
+        return (
+            np.sqrt(chi2_value)
+            * self.compound_vector
+            @ cholesky
+            @ self.model.sphere_variables
+        )
 
     def abundant_ms(self, pH, I, temperature, pMg):
         ddg_over_rts = [
