@@ -9,7 +9,7 @@ from equilibrator_cache import Compound
 api = ComponentContribution()
 
 
-class Thermo_met(Metabolite, Compound):
+class Thermo_met(Metabolite):
     """ Class representation of thermodynamic metabolite object
     
     Arguments:
@@ -145,7 +145,7 @@ class Thermo_met(Metabolite, Compound):
         try:
             return self._std_dev
         except AttributeError:
-            variance = self.compound_vector @ C @ self.compound_vector.T
+            variance = self.compound_vector @ covariance @ self.compound_vector.T
             self._std_dev = np.sqrt(variance[0])
             return self._std_dev
 

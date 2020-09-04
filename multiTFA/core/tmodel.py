@@ -296,6 +296,19 @@ class tmodel(Model):
                 [delG_forward, delG_reverse, indicator_forward, indicator_reverse]
             )  # for the MIQC constraints
 
+        # Add group variables for BOX method (including dependent & independent)
+        component_variables = np.array(
+            [
+                self.problem.Variable(
+                    "component_{}".format(i),
+                    lb=-np.sqrt(covariance[i, i]),
+                    ub=np.sqrt(covariance[i, i]),
+                )
+                for i in range(len(covariance))
+            ]
+        )
+        self.add_cons_vars(component_variables.tolist())
+
         # Add variables for the independent components, number will be equal to rank of component covariance matrix
         something = 669  # replace with rank of matrix
         sphere_vars = np.array(
@@ -304,7 +317,6 @@ class tmodel(Model):
                 for i in range(something)
             ]
         )
-
         self._miqc_solver.add(
             sphere_vars.tolist()
         )  # These variable are not used for box method, only for the MIQCP
@@ -324,6 +336,11 @@ class tmodel(Model):
         if len(self.variables) <= 2.5 * len(self.reactions):
             self.update_thermo_variables()
 
+        # Get the group variables for box method
+        component_variables = [
+            var for var in self.variables if var.name.startswith("component_")
+        ]
+
         # Now we create common constraints between MIQC method and MIP methods and later add the delG constraint separately
 
         rxn_common_constraints = []
@@ -332,6 +349,9 @@ class tmodel(Model):
         # Now add reaction variables and generate remaining constraints
         for rxn in self.reactions:
             if rxn.id in self.Exclude_reactions:
+                logging.debug(
+                    "Reaction {} is excluded from thermodyanmic analysis".format(rxn.id)
+                )
                 continue
 
             # Directionality constraint
@@ -344,7 +364,7 @@ class tmodel(Model):
 
             # delG constraint for box
             concentration_term = concentration_exp(rxn)
-            met_term = formation_exp(rxn)
+            met_term = formation_exp(rxn, component_variables=component_variables)
 
             lhs_forward = rxn.delG_forward - RT * concentration_term - met_term
             lhs_reverse = rxn.delG_reverse + RT * concentration_term + met_term
@@ -379,6 +399,7 @@ class tmodel(Model):
                 ub=-rhs,
                 name="delG_{}".format(rxn.reverse_variable.name),
             )
+            delG_constraint_QC.extend([delG_f_qc, delG_r_qc])
 
         return (
             rxn_common_constraints + delG_constraint_box,
@@ -392,8 +413,9 @@ class tmodel(Model):
         for cons in box_constraints:
             if cons.name not in self.constraints:
                 self.add_cons_vars([cons])
+                logging.debug("Constraint {} added to the model".format(cons.name))
             else:
-                warn(
+                logging.warning(
                     "Constraint {} already in the model, removing previous entry".format(
                         cons.name
                     )
@@ -404,9 +426,12 @@ class tmodel(Model):
         for cons in QC_constraints:
             if cons.name not in self._miqc_solver.constraints:
                 self._miqc_solver.add([cons])
+                logging.debug(
+                    "Constraint {} added to the MIQC problem".format(cons.name)
+                )
             else:
-                warn(
-                    "Constraint {} already in the model, removing previous entry".format(
+                logging.warning(
+                    "Constraint {} already in the MIQC problem, removing previous entry".format(
                         cons.name
                     )
                 )
@@ -429,7 +454,7 @@ class tmodel(Model):
                 optlang.available_solvers["GUROBI"]
                 or optlang.available_solvers["CPLEX"]
             ):
-                warn(
+                logging.warning(
                     "GUROBI/CPLEX not available, Quadratic constraints are not supported by current solver"
                 )
                 return
@@ -519,6 +544,7 @@ class tmodel(Model):
 
         else:
             raise NotImplementedError("Current solver doesn't support QC")
+            logging.error("Current solver doesnt support problesm of type MIQC")
 
     def calculate_S_matrix(self):
         """ Calculates the stoichiometric matrix (metabolites * Reactions)

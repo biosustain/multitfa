@@ -176,10 +176,10 @@ def delG_constraint_expression(reaction):
     )
 
 
-def formation_exp(reaction):
+def formation_exp(reaction, component_variables):
 
     return sum(
-        stoic * metabolite.compound_variable
+        stoic * metabolite.compound_vector @ np.array(component_variables)
         for metabolite, stoic in iteritems(reaction.metabolites)
         if metabolite.Kegg_id not in ["C00080", "cpd00067"]
     )
