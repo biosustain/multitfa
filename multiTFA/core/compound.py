@@ -5,6 +5,7 @@ from six import iteritems
 from copy import copy, deepcopy
 from equilibrator_api import ComponentContribution, Q_
 from equilibrator_cache import Compound
+import time
 
 api = ComponentContribution()
 
@@ -111,6 +112,7 @@ class Thermo_met(Metabolite):
     @Kegg_id.setter
     def Kegg_id(self, value):
         self._Kegg_id = value
+        # self._equilibrator_accession = api.get_compound(self.Kegg_id)
 
     @property
     def compound_variable(self):
@@ -125,8 +127,8 @@ class Thermo_met(Metabolite):
         try:
             return self._compound_vector
         except AttributeError:
-            self.get_equilibrator_accession()
             self._compound_vector = self.get_compound_vector()
+            return self._compound_vector
 
     @property
     def delG_f(self):
@@ -171,7 +173,7 @@ class Thermo_met(Metabolite):
 
     @property
     def is_proton(self):
-        if self.inchi_key == PROTON_INCHI_KEY:
+        if self._equilibrator_accession.inchi_key == PROTON_INCHI_KEY:
             return True
         else:
             return False
@@ -185,28 +187,22 @@ class Thermo_met(Metabolite):
             @ self.model.sphere_variables
         )
 
+    @property
+    def equilibrator_accession(self):
+        try:
+            return self._equilibrator_accession
+            # print(self._equilibrator_accession.id)
+        except AttributeError:
+            self._equilibrator_accession = api.get_compound(self.Kegg_id)
+            return self._equilibrator_accession
+
     def abundant_ms(self, pH, I, temperature, pMg):
         ddg_over_rts = [
             (ms.transform(pH=pH, ionic_strength=I, T_in_K=temperature, pMg=pMg,), ms,)
-            for ms in self.microspecies
+            for ms in self.equilibrator_accession.microspecies
         ]
         min_ddg, min_ms = min(ddg_over_rts, key=lambda x: x[0])
         return min_ms
-
-    def get_equilibrator_accession(self):
-        """ Get the equilibrator compound from api and populate the attributes of the thermo met
-        """
-        cpd_accession = api.get_compound(self.Kegg_id)
-        if cpd_accession:
-            do_not_copy = ["id", "_sa_instance_state", "updated_on", "created_on"]
-            for attr, value in iteritems(cpd_accession.__dict__):
-                if attr not in do_not_copy:
-                    self.__dict__[attr] = copy(value)
-
-            self.eq_id = cpd_accession.id
-        else:
-            self._delG_f = 0
-            self.std_dev = 0
 
     def get_compound_vector(self):
         """ This is the implementation of compound vector from component contribution. Checks if the compound is covered by group contribution, reactant contribution or neither
@@ -216,18 +212,30 @@ class Thermo_met(Metabolite):
                         Compound vector with index of the compound in training data (component contribution) or None
             
         """
-        try:
-            rc_index = rc_compound_ids.index(self.eq_id)
-            comp_vector = np.zeros(Nc + Ng, dtype=float)
-            comp_vector[rc_index] = 1
-            return comp_vector[np.newaxis, :]
-        except ValueError:
-            if self.group_vector:
-                comp_vector = np.hstack([np.zeros(Nc, dtype=float), self.group_vector])
-                return comp_vector[np.newaxis, :]
-            else:
+        # self._equilibrator_accession = api.get_compound(self.Kegg_id)
+        # print(self._equilibrator_accession.id)
+        # time.sleep(0.5)
+        if self.equilibrator_accession:
+            try:
+                rc_index = rc_compound_ids.index(self.equilibrator_accession.id)
                 comp_vector = np.zeros(Nc + Ng, dtype=float)
+                comp_vector[rc_index] = 1
                 return comp_vector[np.newaxis, :]
+            except ValueError:
+                if self.equilibrator_accession.group_vector:
+                    comp_vector = np.hstack(
+                        [
+                            np.zeros(Nc, dtype=float),
+                            self.equilibrator_accession.group_vector,
+                        ]
+                    )
+                    return comp_vector[np.newaxis, :]
+                else:
+                    comp_vector = np.zeros(Nc + Ng, dtype=float)
+                    return comp_vector[np.newaxis, :]
+        else:
+            comp_vector = np.zeros(Nc + Ng, dtype=float)
+            return comp_vector[np.newaxis, :]
 
     def calculate_delG_f(self):
         """ Calculates the standard transformed Gibbs formation energy of compound using component contribution method. pH, Ionic strength values are taken from model's compartment_info attribute
@@ -236,14 +244,16 @@ class Thermo_met(Metabolite):
             float -- Transformed Gibbs energy of formation adjusted to pH, ionic strength of metabolite
         """
 
-        std_dG_f = mu @ self.compound_vector
-        transform = self.transform(
-            p_h=Q_(self.model.compartment_info["pH"][self.compartment]),
-            ionic_strength=Q_(
-                str(self.model.compartment_info["I"][self.compartment]) + " M"
-            ),
-            temperature=Q_(str(default_T) + " K"),
-        )
-
-        return float(std_dG_f + transform)
+        std_dG_f = self.compound_vector @ mu
+        if self.compound_vector.any():
+            transform = self.equilibrator_accession.transform(
+                p_h=Q_(self.model.compartment_info["pH"][self.compartment]),
+                ionic_strength=Q_(
+                    str(self.model.compartment_info["I"][self.compartment]) + " M"
+                ),
+                temperature=Q_(str(default_T) + " K"),
+            )
+            return std_dG_f[0] + transform.to_base_units().magnitude * 1e-3
+        else:
+            return std_dG_f[0]
 

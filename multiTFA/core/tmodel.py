@@ -176,7 +176,7 @@ class tmodel(Model):
         for met in self.metabolites:
             if met.is_proton:
                 continue
-            if not met.compound_vector:
+            if ~met.compound_vector.any():
                 problematic_metabolites.append(met)
         return problematic_metabolites
 
