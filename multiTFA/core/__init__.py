@@ -1,4 +1,4 @@
 from . import compound
-from . import tmodel
+from .tmodel import tmodel
 from . import reaction
 from . import solution

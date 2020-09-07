@@ -49,12 +49,16 @@ class Thermo_met(Metabolite):
             return self._concentration_min
         except AttributeError:
             if self.model.compartment_info is not None:
-                self._concentration_min = float(
-                    self.model.compartment_info["c_min"][self.compartment]
-                )
+                try:
+                    self._concentration_min = float(
+                        self.model.compartment_info["c_min"][self.compartment]
+                    )
+                except KeyError:
+                    self._concentration_min = 1e-5
                 return self._concentration_min
-            self._concentration_min = float(1e-5)
-            return self._concentration_min
+            else:
+                self._concentration_min = float(1e-5)
+                return self._concentration_min
 
     @concentration_min.setter
     def concentration_min(self, value):
@@ -80,12 +84,16 @@ class Thermo_met(Metabolite):
             return self._concentration_max
         except AttributeError:
             if self.model.compartment_info is not None:
-                self._concentration_max = float(
-                    self.model.compartment_info["c_max"][self.compartment]
-                )
+                try:
+                    self._concentration_max = float(
+                        self.model.compartment_info["c_max"][self.compartment]
+                    )
+                except KeyError:
+                    self._concentration_max = 2e-2
                 return self._concentration_max
-            self._concentration_max = float(2e-2)
-            return self._concentration_max
+            else:
+                self._concentration_max = float(2e-2)
+                return self._concentration_max
 
     @concentration_max.setter
     def concentration_max(self, value):
@@ -148,7 +156,7 @@ class Thermo_met(Metabolite):
             return self._std_dev
         except AttributeError:
             variance = self.compound_vector @ covariance @ self.compound_vector.T
-            self._std_dev = np.sqrt(variance[0])
+            self._std_dev = np.sqrt(variance[0][0])
             return self._std_dev
 
     @property
@@ -166,15 +174,19 @@ class Thermo_met(Metabolite):
 
     @property
     def is_exclude(self):
-        if self.delG_f == 0 or self.std_dev == 0:
+        if self.is_proton:
+            return False
+        elif ~self.compound_vector.any():
             return True
         else:
             return False
 
     @property
     def is_proton(self):
-        if self._equilibrator_accession.inchi_key == PROTON_INCHI_KEY:
-            return True
+
+        if self.equilibrator_accession:
+            if self.equilibrator_accession.inchi_key == PROTON_INCHI_KEY:
+                return True
         else:
             return False
 

@@ -192,7 +192,9 @@ class tmodel(Model):
         try:
             return self._Exclude_reactions
         except AttributeError:
-            self._Exclude_reactions = self.Exclude_list + self.problematic_rxns
+            self._Exclude_reactions = list(
+                set(self.Exclude_list + self.problematic_rxns)
+            )
             return self._Exclude_reactions
 
     @property
@@ -491,7 +493,7 @@ class tmodel(Model):
 
         if self.solver.__class__.__module__ == "optlang.gurobi_interface":
 
-            solver_interface = self._miqc_solver.copy()
+            solver_interface = self._miqc_solver.problem.copy()
 
             sphere_variables = [
                 var
