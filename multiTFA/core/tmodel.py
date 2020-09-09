@@ -26,7 +26,10 @@ import os
 from random import choices
 import string
 from scipy import stats, linalg
+import pickle
 from equilibrator_api import ComponentContribution, Q_
+
+api = ComponentContribution()
 
 # present_dir = os.path.normpath(os.path.dirname(os.path.abspath(__file__)))
 cwd = os.getcwd()
@@ -68,10 +71,14 @@ class tmodel(Model):
         tolerance_integral=1e-9,
         compartment_info=None,
         membrane_potential=None,
+        populate_from_cache=False,
+        cache_file=None,
     ):
 
         self.compartment_info = compartment_info
         self.membrane_potential = membrane_potential
+        self.populate_from_cache = populate_from_cache
+        self.cache_file = cache_file
         do_not_copy_by_ref = {
             "metabolites",
             "reactions",
@@ -246,6 +253,39 @@ class tmodel(Model):
             self._correlated_metabolites = correlated_pairs(self)
             return self._correlated_metabolites
 
+    @property
+    def metabolite_equilibrator_accessions(self):
+        try:
+            return self._metabolite_equilibrator_accessions
+        except AttributeError:
+            self._metabolite_equilibrator_accessions = (
+                self.populate_metabolite_properties()
+            )
+            return self._metabolite_equilibrator_accessions
+
+    def populate_metabolite_properties(self):
+        if self.populate_from_cache:
+            with open(self.cache_file, "rb") as handle:
+                metabolite_accessions = pickle.load(handle)
+            return metabolite_accessions[0]
+        else:
+            accessions = {}
+            for metabolite in self.metabolites:
+                eq_accession = api.get_compound(metabolite.Kegg_id)
+                accessions[metabolite.id] = eq_accession
+
+            # Create a cache file for next use
+            compounds, microspecies, mg_dissociations = ({}, {}, {})
+            for key in accessions:
+                compounds[key] = accessions[key]
+                microspecies[key] = accessions[key].microspecies
+                mg_dissociations[key] = accessions[key].magnesium_dissociation_constants
+
+            with open(cwd + os.sep + "compound_cache.pickle", "wb") as handle:
+                pickle.dump([compounds, microspecies, mg_dissociations], handle)
+
+            return accessions
+
     def update_thermo_variables(self):
         """ Generates reaction and metabolite variables required for thermodynamic analysis and adds to the model. We use two different methods to solve the tMFA problem. Traditional 'box' method employs MILP problem where components are allowed to vary between some s.d from mean. The other method uses MIQCP structure to use covariance matrix to capture covariance. Two methods share some common variables, where as MIQCP method requires independent variables to sample from original solution space.
 
@@ -267,6 +307,7 @@ class tmodel(Model):
         self._miqc_solver.add(conc_varibales)
 
         # Adding the thermo variables for reactions, delG_reaction and indicator (binary)
+        rxn_variables = []
         for rxn in self.reactions:
             if rxn.id in self.Exclude_reactions:
                 continue
@@ -291,12 +332,11 @@ class tmodel(Model):
                 ub=1,
                 type="binary",
             )
-            self.add_cons_vars(
+            rxn_variables.extend(
                 [delG_forward, delG_reverse, indicator_forward, indicator_reverse]
             )
-            self._miqc_solver.add(
-                [delG_forward, delG_reverse, indicator_forward, indicator_reverse]
-            )  # for the MIQC constraints
+        self.add_cons_vars(rxn_variables)
+        self._miqc_solver.add(rxn_variables)  # for the MIQC constraints
 
         # Add group variables for BOX method (including dependent & independent)
         component_variables = np.array(
@@ -355,7 +395,7 @@ class tmodel(Model):
                     "Reaction {} is excluded from thermodyanmic analysis".format(rxn.id)
                 )
                 continue
-
+            print(rxn.id)
             # Directionality constraint
             dir_f, dir_r = directionality(rxn)
             ind_f, ind_r = delG_indicator(rxn)

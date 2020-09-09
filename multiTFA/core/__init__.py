@@ -1,4 +1,5 @@
-from . import compound
+from .compound import Thermo_met
 from .tmodel import tmodel
-from . import reaction
+from .reaction import thermo_reaction
 from . import solution
+

@@ -144,7 +144,7 @@ def concentration_exp(reaction):
     conc_exp = sum(
         stoic * metabolite.concentration_variable
         for metabolite, stoic in iteritems(reaction.metabolites)
-        if metabolite.inchi_key != PROTON_INCHI_KEY
+        if metabolite.equilibrator_accession.inchi_key != PROTON_INCHI_KEY
     )
     return conc_exp
 
@@ -161,13 +161,13 @@ def delG_constraint_expression(reaction):
     concentration_term = sum(
         stoic * metabolite.concentration_variable
         for metabolite, stoic in iteritems(reaction.metabolites)
-        if metabolite.inchi_key != PROTON_INCHI_KEY
+        if metabolite.equilibrator_accession.inchi_key != PROTON_INCHI_KEY
     )
 
     error_term = sum(
         stoic * metabolite.sphere_var_expression
         for metabolite, stoic in iteritems(reaction.metabolites)
-        if metabolite.inchi_key != PROTON_INCHI_KEY
+        if metabolite.equilibrator_accession.inchi_key != PROTON_INCHI_KEY
     )
 
     return (

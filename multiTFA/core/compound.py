@@ -3,11 +3,8 @@ import numpy as np
 from ..util.thermo_constants import *
 from six import iteritems
 from copy import copy, deepcopy
-from equilibrator_api import ComponentContribution, Q_
-from equilibrator_cache import Compound
 import time
-
-api = ComponentContribution()
+from equilibrator_api import Q_
 
 
 class Thermo_met(Metabolite):
@@ -205,7 +202,9 @@ class Thermo_met(Metabolite):
             return self._equilibrator_accession
             # print(self._equilibrator_accession.id)
         except AttributeError:
-            self._equilibrator_accession = api.get_compound(self.Kegg_id)
+            self._equilibrator_accession = self.model.metabolite_equilibrator_accessions[
+                self.id
+            ]
             return self._equilibrator_accession
 
     def abundant_ms(self, pH, I, temperature, pMg):
