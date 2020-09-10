@@ -189,11 +189,11 @@ class thermo_reaction(Reaction):
 
                 if metabolite.compartment in n_proton:
                     n_proton[metabolite.compartment].append(
-                        stoic * metabolite.elements["H"]
+                        stoic * metabolite.elements.get("H", 0)
                     )
                 else:
                     n_proton[metabolite.compartment] = [
-                        stoic * metabolite.elements["H"]
+                        stoic * metabolite.elements.get("H", 0)
                     ]
         return (
             {key: sum(val) for key, val in n_charge.items()},
@@ -232,10 +232,10 @@ class thermo_reaction(Reaction):
             np.ndarray -- S matrix of reaction
         """
 
-        S_matrix = zeros((1, len(self.model.metabolites)))
+        S_matrix = zeros((len(self.model.metabolites)))
         for metabolite, stoic in iteritems(self.metabolites):
-            S_matrix[0, self.model.metabolites.index(metabolite)] = stoic
-        return S_matrix.T
+            S_matrix[self.model.metabolites.index(metabolite)] = stoic
+        return S_matrix
 
     def get_coefficient(self, metabolite_id):
         _id_to_metabolites = {m.id: m for m in self.metabolites}

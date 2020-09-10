@@ -286,6 +286,56 @@ class tmodel(Model):
 
             return accessions
 
+    @property
+    def compound_vector_matrix(self):
+        try:
+            return self._compound_vector_matrix
+        except AttributeError:
+            # Initialize the matrix with zeros
+            comp_vector = np.zeros((len(self.metabolites), cholesky.shape[0]))
+            for metabolite in self.metabolites:
+                met_index = self.metabolites.index(metabolite)
+                comp_vector[met_index, :] = metabolite.compound_vector
+            self._compound_vector_matrix = comp_vector
+            return self._compound_vector_matrix
+
+    @property
+    def error_expression(self):
+        try:
+            return self._error_expression
+        except AttributeError:
+            n_core_rxn = len(self.reactions) - len(self.Exclude_reactions)
+            stoichiometry_core = np.zeros((2 * n_core_rxn, len(self.metabolites)))
+            component_variables = np.array(
+                [var for var in self.variables if var.name.startswith("component_")]
+            )
+            stoichiometry_core = self.core_stoichiometry()
+            self._error_expression = (
+                stoichiometry_core
+                @ self.compound_vector_matrix
+                @ cholesky
+                @ self.sphere_variables,
+                stoichiometry_core @ self.compound_vector_matrix @ component_variables,
+            )
+            return self._error_expression
+
+    def core_stoichiometry(self):
+        n_core_rxn = len(self.reactions) - len(self.Exclude_reactions)
+        stoichiometry_core = np.zeros((2 * n_core_rxn, len(self.metabolites)))
+        i = 0
+        rxn_var_name = []
+        for reaction in self.reactions:
+            if reaction.id in self.Exclude_reactions:
+                continue
+            rxn_stoichiometry = reaction.cal_stoichiometric_matrix()
+            stoichiometry_core[i, :] = rxn_stoichiometry
+            stoichiometry_core[i + 1, :] = -rxn_stoichiometry
+            i = i + 2
+            rxn_var_name.extend(
+                [reaction.forward_variable.name, reaction.reverse_variable.name]
+            )
+        return (rxn_var_name, stoichiometry_core)
+
     def update_thermo_variables(self):
         """ Generates reaction and metabolite variables required for thermodynamic analysis and adds to the model. We use two different methods to solve the tMFA problem. Traditional 'box' method employs MILP problem where components are allowed to vary between some s.d from mean. The other method uses MIQCP structure to use covariance matrix to capture covariance. Two methods share some common variables, where as MIQCP method requires independent variables to sample from original solution space.
 
@@ -294,6 +344,7 @@ class tmodel(Model):
         MIQCP variables: independent component variables
 
         """
+        self._var_update = False
         # Add metabolite concentration variable
         conc_varibales = []
         for metabolite in self.metabolites:
@@ -352,7 +403,7 @@ class tmodel(Model):
         self.add_cons_vars(component_variables.tolist())
 
         # Add variables for the independent components, number will be equal to rank of component covariance matrix
-        something = 669  # replace with rank of matrix
+        something = cholesky.shape[1]  # replace with rank of matrix
         sphere_vars = np.array(
             [
                 self.problem.Variable("Sphere_{}".format(i), lb=-1, ub=1)
@@ -362,6 +413,7 @@ class tmodel(Model):
         self._miqc_solver.add(
             sphere_vars.tolist()
         )  # These variable are not used for box method, only for the MIQCP
+        self._var_update = True
 
     def _generate_constraints(self):
         """ Generates thermodynamic constraints for the model. See util/constraints.py for detailed explanation of constraints
@@ -375,7 +427,7 @@ class tmodel(Model):
             List -- List of themrodynamic constraints
         """
         # First check if thermovariables are added to the model, if not update. Just being conservative on when to update variables
-        if len(self.variables) <= 2.5 * len(self.reactions):
+        if not self._var_update:
             self.update_thermo_variables()
 
         # Get the group variables for box method

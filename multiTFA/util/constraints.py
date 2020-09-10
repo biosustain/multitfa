@@ -165,7 +165,7 @@ def delG_constraint_expression(reaction):
     )
 
     error_term = sum(
-        stoic * metabolite.sphere_var_expression
+        stoic * metabolite.sphere_var_expression[0]
         for metabolite, stoic in iteritems(reaction.metabolites)
         if metabolite.equilibrator_accession.inchi_key != PROTON_INCHI_KEY
     )
@@ -179,7 +179,7 @@ def delG_constraint_expression(reaction):
 def formation_exp(reaction, component_variables):
 
     return sum(
-        stoic * metabolite.compound_vector @ np.array(component_variables)
+        stoic * (metabolite.compound_vector @ np.array(component_variables))[0]
         for metabolite, stoic in iteritems(reaction.metabolites)
         if metabolite.Kegg_id not in ["C00080", "cpd00067"]
     )
