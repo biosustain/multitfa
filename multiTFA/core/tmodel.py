@@ -239,6 +239,12 @@ class tmodel(Model):
             return self._sphere_variables
 
     @property
+    def component_variables(self):
+        return np.array(
+            [var for var in self.variables if var.name.startswith("component_")]
+        )
+
+    @property
     def correlated_metabolites(self):
         """Metabolites that are highly correlated thermodynamically, for example they share many common groups or co-occur all the time in training data.
 
@@ -321,7 +327,7 @@ class tmodel(Model):
 
     def core_stoichiometry(self):
         n_core_rxn = len(self.reactions) - len(self.Exclude_reactions)
-        stoichiometry_core = np.zeros((2 * n_core_rxn, len(self.metabolites)))
+        stoichiometry_core = np.zeros((n_core_rxn, len(self.metabolites)))
         i = 0
         rxn_var_name = []
         for reaction in self.reactions:
@@ -329,7 +335,7 @@ class tmodel(Model):
                 continue
             rxn_stoichiometry = reaction.cal_stoichiometric_matrix()
             stoichiometry_core[i, :] = rxn_stoichiometry
-            stoichiometry_core[i + 1, :] = -rxn_stoichiometry
+
             i = i + 2
             rxn_var_name.extend(
                 [reaction.forward_variable.name, reaction.reverse_variable.name]

@@ -207,6 +207,14 @@ class Thermo_met(Metabolite):
             ]
             return self._equilibrator_accession
 
+    @property
+    def std_dev_expression(self):
+        if self.model._var_update:
+            return (
+                self.compound_vector[np.nonzero(self.compound_vector)]
+                @ self.model.component_variables[np.nonzero(self.compound_vector)[1]]
+            )
+
     def abundant_ms(self, pH, I, temperature, pMg):
         ddg_over_rts = [
             (ms.transform(pH=pH, ionic_strength=I, T_in_K=temperature, pMg=pMg,), ms,)
