@@ -120,10 +120,10 @@ class Thermo_met(Metabolite):
         # self._equilibrator_accession = api.get_compound(self.Kegg_id)
 
     @property
-    def compound_variable(self):
+    def delG_err_variable(self):
         if self.model is not None:
-            conc_var = "met_{}".format(self.Kegg_id)
-            return self.model.variables[conc_var]
+            err_var = "dG_err_{}".format(self.id)
+            return self.model.variables[err_var]
         else:
             return None
 

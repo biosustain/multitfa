@@ -351,17 +351,24 @@ class tmodel(Model):
 
         """
         self._var_update = False
-        # Add metabolite concentration variable
-        conc_varibales = []
+
+        # Add metabolite concentration variable and error variable for the metabolite
+        conc_variables, dG_err_vars = ([], [])
         for metabolite in self.metabolites:
             conc_variable = self.problem.Variable(
                 "lnc_{}".format(metabolite.id),
                 lb=np.log(metabolite.concentration_min),
                 ub=np.log(metabolite.concentration_max),
             )
-            conc_varibales.append(conc_variable)
-        self.add_cons_vars(conc_varibales)
-        self._miqc_solver.add(conc_varibales)
+
+            delG_err_variable = self.problem.Variable(
+                "dG_err_{}".format(metabolite.id), lb=-1000, ub=1000,
+            )
+            conc_variables.append(conc_variable)
+            dG_err_vars.append(delG_err_variable)
+
+        self.add_cons_vars(conc_variables + dG_err_vars)
+        self._miqc_solver.add(conc_variables)
 
         # Adding the thermo variables for reactions, delG_reaction and indicator (binary)
         rxn_variables = []
@@ -400,8 +407,8 @@ class tmodel(Model):
             [
                 self.problem.Variable(
                     "component_{}".format(i),
-                    lb=-np.sqrt(covariance[i, i]),
-                    ub=np.sqrt(covariance[i, i]),
+                    lb=-1.96 * np.sqrt(covariance[i, i]),
+                    ub=1.96 * np.sqrt(covariance[i, i]),
                 )
                 for i in range(len(covariance))
             ]
@@ -463,11 +470,20 @@ class tmodel(Model):
             # Create two different constraints for box method and MIQC method
 
             # delG constraint for box
-            concentration_term = concentration_exp(rxn)
-            met_term = formation_exp(rxn, component_variables=component_variables)
+            concentration_term = sum(
+                stoic * metabolite.concentration_variable
+                for metabolite, stoic in iteritems(rxn.metabolites)
+                if metabolite.equilibrator_accession.inchi_key != PROTON_INCHI_KEY
+            )
 
-            lhs_forward = rxn.delG_forward - RT * concentration_term - met_term
-            lhs_reverse = rxn.delG_reverse + RT * concentration_term + met_term
+            err_term = sum(
+                stoic * metabolite.delG_err_variable
+                for metabolite, stoic in iteritems(rxn.metabolites)
+                if metabolite.equilibrator_accession.inchi_key != PROTON_INCHI_KEY
+            )
+
+            lhs_forward = rxn.delG_forward - RT * concentration_term - err_term
+            lhs_reverse = rxn.delG_reverse + RT * concentration_term + err_term
             rhs = rxn.delG_prime + rxn.delG_transport
 
             delG_f = self.problem.Constraint(
@@ -486,7 +502,9 @@ class tmodel(Model):
             delG_constraint_box.extend([delG_f, delG_r])
 
             # delG constraint for QC problem
-            forward_qc, reverse_qc = delG_constraint_expression(rxn)
+            forward_qc, reverse_qc = delG_constraint_expression(
+                rxn
+            )  # Delete this and implement it for gurbi/cplex
             delG_f_qc = self.problem.Constraint(
                 forward_qc,
                 lb=rhs,
@@ -501,8 +519,28 @@ class tmodel(Model):
             )
             delG_constraint_QC.extend([delG_f_qc, delG_r_qc])
 
+        exclude_metabolites = []
+        for rxnid in self.Exclude_reactions:
+            reaction = self.reactions.get_by_id(rxnid)
+            for metabolite, stoic in reaction.items():
+                exclude_metabolites.append(metabolite)
+
+        # Now add the constraint linking metabolite error term with component variables
+        metabolite_error_constraint = []
+        for metabolite in self.metabolites:
+            if metabolite in exclude_metabolites:
+                continue
+            err_constraint = self.problem.Constraint(
+                metabolite.delG_err_variable - met.std_dev_expression,
+                lhs=0,
+                rhs=0,
+                name="std_dev_{}".format(metabolite.id),
+            )
+
+            metabolite_error_constraint.append(err_constraint)
+
         return (
-            rxn_common_constraints + delG_constraint_box,
+            rxn_common_constraints + delG_constraint_box + metabolite_error_constraint,
             rxn_common_constraints + delG_constraint_QC,
         )
 
