@@ -115,16 +115,17 @@ class tmodel(Model):
 
         try:
             self._solver = deepcopy(model.solver)
-            self._miqc_solver = deepcopy(model.solver)
+            # self._miqc_solver = deepcopy(model.solver)
             # Cplex has an issue with deep copies
         except Exception:  # pragma: no cover
             self._solver = copy(model.solver)  # pragma: no cover
-            self._miqc_solver = copy(
-                model.solver
-            )  # creating this for adding different delG constraint to copy later to gurobi and cplex interfaces
+            # self._miqc_solver = copy(
+            #    model.solver
+            # )  # creating this for adding different delG constraint to copy later to gurobi and cplex interfaces
 
         self.Exclude_list = Exclude_list
         self.solver.configuration.tolerances.integrality = tolerance_integral
+        self._var_update = False
 
     @property
     def gurobi_interface(self):
@@ -352,6 +353,31 @@ class tmodel(Model):
         """
         self._var_update = False
 
+        # Add group/rc (component) variables for BOX method (including dependent & independent)
+        component_variables = np.array(
+            [
+                self.problem.Variable(
+                    "component_{}".format(i),
+                    lb=-1.96 * np.sqrt(covariance[i, i]),
+                    ub=1.96 * np.sqrt(covariance[i, i]),
+                )
+                for i in range(len(covariance))
+            ]
+        )
+        self.add_cons_vars(component_variables.tolist())
+
+        # Add variables for the independent components, number will be equal to rank of component covariance matrix
+        n_independent = cholesky.shape[1]  # Independent variables from cholesky
+        sphere_vars = np.array(
+            [
+                self.problem.Variable("Sphere_{}".format(i), lb=-1, ub=1)
+                for i in range(n_independent)
+            ]
+        )
+        # self._miqc_solver.add(
+        #    sphere_vars.tolist()
+        # )  # These variable are not used for box method, only for the MIQCP
+
         # Add metabolite concentration variable and error variable for the metabolite
         conc_variables, dG_err_vars = ([], [])
         for metabolite in self.metabolites:
@@ -368,7 +394,7 @@ class tmodel(Model):
             dG_err_vars.append(delG_err_variable)
 
         self.add_cons_vars(conc_variables + dG_err_vars)
-        self._miqc_solver.add(conc_variables)
+        # self._miqc_solver.add(conc_variables)
 
         # Adding the thermo variables for reactions, delG_reaction and indicator (binary)
         rxn_variables = []
@@ -400,32 +426,8 @@ class tmodel(Model):
                 [delG_forward, delG_reverse, indicator_forward, indicator_reverse]
             )
         self.add_cons_vars(rxn_variables)
-        self._miqc_solver.add(rxn_variables)  # for the MIQC constraints
+        # self._miqc_solver.add(rxn_variables)  # for the MIQC constraints
 
-        # Add group variables for BOX method (including dependent & independent)
-        component_variables = np.array(
-            [
-                self.problem.Variable(
-                    "component_{}".format(i),
-                    lb=-1.96 * np.sqrt(covariance[i, i]),
-                    ub=1.96 * np.sqrt(covariance[i, i]),
-                )
-                for i in range(len(covariance))
-            ]
-        )
-        self.add_cons_vars(component_variables.tolist())
-
-        # Add variables for the independent components, number will be equal to rank of component covariance matrix
-        something = cholesky.shape[1]  # replace with rank of matrix
-        sphere_vars = np.array(
-            [
-                self.problem.Variable("Sphere_{}".format(i), lb=-1, ub=1)
-                for i in range(something)
-            ]
-        )
-        self._miqc_solver.add(
-            sphere_vars.tolist()
-        )  # These variable are not used for box method, only for the MIQCP
         self._var_update = True
 
     def _generate_constraints(self):
@@ -439,14 +441,9 @@ class tmodel(Model):
         Returns:
             List -- List of themrodynamic constraints
         """
-        # First check if thermovariables are added to the model, if not update. Just being conservative on when to update variables
+        # First check if thermovariables are added to the model
         if not self._var_update:
             self.update_thermo_variables()
-
-        # Get the group variables for box method
-        component_variables = [
-            var for var in self.variables if var.name.startswith("component_")
-        ]
 
         # Now we create common constraints between MIQC method and MIP methods and later add the delG constraint separately
 
@@ -501,54 +498,38 @@ class tmodel(Model):
             )
             delG_constraint_box.extend([delG_f, delG_r])
 
-            # delG constraint for QC problem
-            forward_qc, reverse_qc = delG_constraint_expression(
-                rxn
-            )  # Delete this and implement it for gurbi/cplex
-            delG_f_qc = self.problem.Constraint(
-                forward_qc,
-                lb=rhs,
-                ub=rhs,
-                name="delG_{}".format(rxn.forward_variable.name),
-            )
-            delG_r_qc = self.problem.Constraint(
-                reverse_qc,
-                lb=-rhs,
-                ub=-rhs,
-                name="delG_{}".format(rxn.reverse_variable.name),
-            )
-            delG_constraint_QC.extend([delG_f_qc, delG_r_qc])
-
+        # Add a constraint to link error on metabolite to component variables
         exclude_metabolites = []
         for rxnid in self.Exclude_reactions:
             reaction = self.reactions.get_by_id(rxnid)
-            for metabolite, stoic in reaction.items():
+            for metabolite, stoic in reaction.metabolites.items():
                 exclude_metabolites.append(metabolite)
 
         # Now add the constraint linking metabolite error term with component variables
-        metabolite_error_constraint = []
+
         for metabolite in self.metabolites:
             if metabolite in exclude_metabolites:
                 continue
             err_constraint = self.problem.Constraint(
-                metabolite.delG_err_variable - met.std_dev_expression,
-                lhs=0,
-                rhs=0,
+                metabolite.delG_err_variable - metabolite.std_dev_expression,
+                lb=0,
+                ub=0,
                 name="std_dev_{}".format(metabolite.id),
             )
 
-            metabolite_error_constraint.append(err_constraint)
+            delG_constraint_box.append(err_constraint)
 
         return (
-            rxn_common_constraints + delG_constraint_box + metabolite_error_constraint,
-            rxn_common_constraints + delG_constraint_QC,
+            rxn_common_constraints,
+            delG_constraint_box,
         )
 
     def update(self):
         """ Adds the generated thermo constaints to  model. Checks for duplication 
         """
-        box_constraints, QC_constraints = self._generate_constraints()
-        for cons in box_constraints:
+        common_constraints, delG_box_constraints = self._generate_constraints()
+
+        for cons in common_constraints:
             if cons.name not in self.constraints:
                 self.add_cons_vars([cons])
                 logging.debug("Constraint {} added to the model".format(cons.name))
@@ -560,21 +541,31 @@ class tmodel(Model):
                 )
                 self.solver.remove(cons.name)
                 self.add_cons_vars([cons])
-
-        for cons in QC_constraints:
+            """
             if cons.name not in self._miqc_solver.constraints:
                 self._miqc_solver.add([cons])
-                logging.debug(
-                    "Constraint {} added to the MIQC problem".format(cons.name)
-                )
+                logging.debug("Constraint {} added to the model".format(cons.name))
             else:
                 logging.warning(
-                    "Constraint {} already in the MIQC problem, removing previous entry".format(
+                    "Constraint {} already in the model, removing previous entry".format(
                         cons.name
                     )
                 )
                 self._miqc_solver.remove(cons.name)
                 self._miqc_solver.add([cons])
+            """
+        for cons in delG_box_constraints:
+            if cons.name not in self.constraints:
+                self.add_cons_vars([cons])
+                logging.debug("Constraint {} added to the model".format(cons.name))
+            else:
+                logging.warning(
+                    "Constraint {} already in the model, removing previous entry".format(
+                        cons.name
+                    )
+                )
+                self.solver.remove(cons.name)
+                self.add_cons_vars([cons])
 
     def optimize(self, solve_method="MIQC", raise_error=False):
         """ solves the model with given constraints. By default, we try to solve the model with quadratic constraints. Note: Quadratic constraints are supported by Gurobi/Cplex currently. if either of two solvers are not found, one can solve 'box' type MILP problem.
@@ -628,8 +619,31 @@ class tmodel(Model):
         """
 
         if self.solver.__class__.__module__ == "optlang.gurobi_interface":
+            from gurobipy import LinExpr, GRB
 
-            solver_interface = self._miqc_solver.problem.copy()
+            solver_interface = self.solver.problem.copy()
+
+            # Remove unnecessary variables and constraints and rebuild  appropriate ones
+            remove_vars = [
+                var
+                for var in solver_interface.getVars()
+                if var.VarName.startswith("component_")
+                or var.VarName.startswith("dG_err_")
+            ]
+
+            remove_constrs = [
+                cons
+                for cons in solver_interface.getConstrs()
+                if cons.ConstrName.startswith("delG_")
+                or cons.ConstrName.startswith("std_dev_")
+            ]
+
+            solver_interface.remove(remove_constrs + remove_vars)
+
+            # Add sphere variables
+            for i in range(cholesky.shape[1]):
+                solver_interface.addVar(lb=-1, ub=1, name="Sphere_{}".format(i))
+            solver_interface.update()
 
             sphere_variables = [
                 var
@@ -637,9 +651,56 @@ class tmodel(Model):
                 if var.VarName.startswith("Sphere_")
             ]
 
+            # Add the quadratic constraint, i.e unit spheroid
             solver_interface.addQConstr(
                 np.sum(np.square(np.array(sphere_variables))) <= 1, name="unit_normal"
             )
+
+            # Create a list of metabolite concentration variables
+            concentration_variables = []
+            for metabolite in self.metabolites:
+                varname = "lnc_{}".format(metabolite.id)
+                var = solver_interface.getVarByName(varname)
+                concentration_variables.append(var)
+
+            cmp_chol_vector = self.compound_vector_matrix @ cholesky
+            # Add the delG constraints
+            for reaction in self.reactions:
+                if reaction.id in self.Exclude_reactions:
+                    continue
+                rxn_stoichiometry = reaction.cal_stoichiometric_matrix()
+                rxn_stoichiometry = rxn_stoichiometry[np.newaxis, :]
+                coefficient_matrix = rxn_stoichiometry @ cmp_chol_vector
+
+                concentration_exp = LinExpr(
+                    rxn_stoichiometry.flatten().tolist(), concentration_variables
+                )
+
+                delG_err_exp = LinExpr(
+                    coefficient_matrix.flatten().tolist(), sphere_variables
+                )
+
+                delG_for_var = solver_interface.getVarByName(
+                    "dG_{}".format(reaction.forward_variable.name)
+                )
+                delG_rev_var = solver_interface.getVarByName(
+                    "dG_{}".format(reaction.reverse_variable.name)
+                )
+                rhs = reaction.delG_prime + reaction.delG_transport
+
+                solver_interface.addConstr(
+                    delG_for_var - concentration_exp - delG_err_exp,
+                    GRB.EQUAL,
+                    rhs,
+                    name="delG_{}".format(reaction.forward_variable.name),
+                )
+
+                solver_interface.addConstr(
+                    delG_rev_var + concentration_exp + delG_err_exp,
+                    GRB.EQUAL,
+                    -rhs,
+                    name="delG_{}".format(reaction.reverse_variable.name),
+                )
 
             solver_interface.update()
 
