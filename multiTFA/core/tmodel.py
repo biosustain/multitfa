@@ -670,10 +670,15 @@ class tmodel(Model):
                     continue
                 rxn_stoichiometry = reaction.cal_stoichiometric_matrix()
                 rxn_stoichiometry = rxn_stoichiometry[np.newaxis, :]
-                coefficient_matrix = rxn_stoichiometry @ cmp_chol_vector
+                coefficient_matrix = (
+                    np.sqrt(chi2_value) * rxn_stoichiometry @ cmp_chol_vector
+                )
+
+                concentration_coefficients = RT * rxn_stoichiometry
 
                 concentration_exp = LinExpr(
-                    rxn_stoichiometry.flatten().tolist(), concentration_variables
+                    concentration_coefficients.flatten().tolist(),
+                    concentration_variables,
                 )
 
                 delG_err_exp = LinExpr(
@@ -710,7 +715,7 @@ class tmodel(Model):
 
             from cplex import Cplex, SparseTriple
 
-            tmp_dir = present_dir + os.sep + os.pardir + os.sep + "tmp"
+            tmp_dir = cwd + os.sep + os.pardir + os.sep + "tmp"
 
             if not os.path.exists(tmp_dir):
                 os.makedirs(tmp_dir)
