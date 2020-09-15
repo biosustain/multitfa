@@ -640,22 +640,36 @@ class tmodel(Model):
 
             solver_interface.remove(remove_constrs + remove_vars)
 
-            # Add sphere variables
-            for i in range(cholesky.shape[1]):
-                solver_interface.addVar(lb=-1, ub=1, name="Sphere_{}".format(i))
+            # Add sphere variables for smaller set and larger set separately
+            for i in range(cholesky_small.shape[1]):
+                solver_interface.addVar(lb=-1, ub=1, name="Sphere1_{}".format(i))
+
+            for i in range(cholesky_high.shape[1]):
+                solver_interface.addVar(lb=-1, ub=1, name="Sphere2_{}".format(i))
+
             solver_interface.update()
 
-            sphere_variables = [
+            sphere1_variables = [
                 var
                 for var in solver_interface.getVars()
-                if var.VarName.startswith("Sphere_")
+                if var.VarName.startswith("Sphere1_")
             ]
 
-            # Add the quadratic constraint, i.e unit spheroid
-            solver_interface.addQConstr(
-                np.sum(np.square(np.array(sphere_variables))) <= 1, name="unit_normal"
-            )
+            sphere2_variables = [
+                var
+                for var in solver_interface.getVars()
+                if var.VarName.startswith("Sphere2_")
+            ]
 
+            # Add the quadratic constraint, i.e unit spheroid for both spheres
+            solver_interface.addQConstr(
+                np.sum(np.square(np.array(sphere1_variables))) <= 1,
+                name="unit_normal_small",
+            )
+            solver_interface.addQConstr(
+                np.sum(np.square(np.array(sphere2_variables))) <= 1,
+                name="unit_normal_high",
+            )
             # Create a list of metabolite concentration variables
             concentration_variables = []
             for metabolite in self.metabolites:
