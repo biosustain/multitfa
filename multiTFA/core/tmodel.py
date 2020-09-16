@@ -299,7 +299,7 @@ class tmodel(Model):
             return self._compound_vector_matrix
         except AttributeError:
             # Initialize the matrix with zeros
-            comp_vector = np.zeros((len(self.metabolites), cholesky.shape[0]))
+            comp_vector = np.zeros((len(self.metabolites), Nc + Ng))
             for metabolite in self.metabolites:
                 met_index = self.metabolites.index(metabolite)
                 comp_vector[met_index, :] = metabolite.compound_vector
@@ -367,13 +367,13 @@ class tmodel(Model):
         self.add_cons_vars(component_variables.tolist())
 
         # Add variables for the independent components, number will be equal to rank of component covariance matrix
-        n_independent = cholesky.shape[1]  # Independent variables from cholesky
-        sphere_vars = np.array(
-            [
-                self.problem.Variable("Sphere_{}".format(i), lb=-1, ub=1)
-                for i in range(n_independent)
-            ]
-        )
+        # n_independent = cholesky.shape[1]  # Independent variables from cholesky
+        # sphere_vars = np.array(
+        #    [
+        #        self.problem.Variable("Sphere_{}".format(i), lb=-1, ub=1)
+        #        for i in range(n_independent)
+        #    ]
+        # )
         # self._miqc_solver.add(
         #    sphere_vars.tolist()
         # )  # These variable are not used for box method, only for the MIQCP
@@ -677,15 +677,24 @@ class tmodel(Model):
                 var = solver_interface.getVarByName(varname)
                 concentration_variables.append(var)
 
-            cmp_chol_vector = self.compound_vector_matrix @ cholesky
+            cmp_chol_vector_small = self.compound_vector_matrix @ cholesky_small
+            cmp_chol_vector_high = self.compound_vector_matrix @ cholesky_high
+
             # Add the delG constraints
             for reaction in self.reactions:
                 if reaction.id in self.Exclude_reactions:
                     continue
                 rxn_stoichiometry = reaction.cal_stoichiometric_matrix()
                 rxn_stoichiometry = rxn_stoichiometry[np.newaxis, :]
-                coefficient_matrix = (
-                    np.sqrt(chi2_value) * rxn_stoichiometry @ cmp_chol_vector
+
+                coefficient_matrix_small = (
+                    np.sqrt(chi2_value_small)
+                    * rxn_stoichiometry
+                    @ cmp_chol_vector_small
+                )
+
+                coefficient_matrix_high = (
+                    np.sqrt(chi2_value_high) * rxn_stoichiometry @ cmp_chol_vector_high
                 )
 
                 concentration_coefficients = RT * rxn_stoichiometry
@@ -695,8 +704,11 @@ class tmodel(Model):
                     concentration_variables,
                 )
 
-                delG_err_exp = LinExpr(
-                    coefficient_matrix.flatten().tolist(), sphere_variables
+                delG_err_exp_small = LinExpr(
+                    coefficient_matrix_small.flatten().tolist(), sphere1_variables
+                )
+                delG_err_exp_high = LinExpr(
+                    coefficient_matrix_high.flatten().tolist(), sphere2_variables
                 )
 
                 delG_for_var = solver_interface.getVarByName(
@@ -708,14 +720,20 @@ class tmodel(Model):
                 rhs = reaction.delG_prime + reaction.delG_transport
 
                 solver_interface.addConstr(
-                    delG_for_var - concentration_exp - delG_err_exp,
+                    delG_for_var
+                    - concentration_exp
+                    - delG_err_exp_high
+                    - delG_err_exp_small,
                     GRB.EQUAL,
                     rhs,
                     name="delG_{}".format(reaction.forward_variable.name),
                 )
 
                 solver_interface.addConstr(
-                    delG_rev_var + concentration_exp + delG_err_exp,
+                    delG_rev_var
+                    + concentration_exp
+                    + delG_err_exp_high
+                    + delG_err_exp_small,
                     GRB.EQUAL,
                     -rhs,
                     name="delG_{}".format(reaction.reverse_variable.name),
@@ -727,7 +745,7 @@ class tmodel(Model):
 
         elif self.solver.__class__.__module__ == "optlang.cplex_interface":
 
-            from cplex import Cplex, SparseTriple
+            from cplex import Cplex, SparseTriple, SparsePair
 
             tmp_dir = cwd + os.sep + os.pardir + os.sep + "tmp"
 
@@ -741,22 +759,121 @@ class tmodel(Model):
             cplex_model = Cplex()
             cplex_model.read(tmp_dir + os.sep + rand_str + ".mps")
 
-            Sphere_var_names = [
-                var_name
-                for var_name in cplex_model.variables.get_names()
-                if var_name.startswith("Sphere_")
+            remove_vars = [
+                var
+                for var in cplex_model.variables.get_names()
+                if var.startswith("component_") or var.startswith("dG_err_")
             ]
+
+            remove_constrs = [
+                cons
+                for cons in cplex_model.linear_constraints.get_names()
+                if cons.startswith("delG_") or cons.startswith("std_dev_")
+            ]
+
+            cplex_model.linear_constraints.delete(remove_constrs)
+            cplex_model.variables.delete(remove_vars)
+
+            indices_sphere1 = cplex_model.variables.add(
+                names=["Sphere1_{}".format(i) for i in range(cholesky_small.shape[1])],
+                lb=[-1] * cholesky_small.shape[1],
+                ub=[1] * cholesky_small.shape[1],
+            )
+
+            indices_sphere2 = cplex_model.variables.add(
+                names=["Sphere2_{}".format(i) for i in range(cholesky_high.shape[1])],
+                lb=[-1] * cholesky_high.shape[1],
+                ub=[1] * cholesky_high.shape[1],
+            )
 
             # Add the Sphere constraint
             cplex_model.quadratic_constraints.add(
                 quad_expr=SparseTriple(
-                    ind1=Sphere_var_names,
-                    ind2=Sphere_var_names,
-                    val=len(Sphere_var_names) * [1],
+                    ind1=indices_sphere1,
+                    ind2=indices_sphere1,
+                    val=len(indices_sphere1) * [1],
                 ),
                 rhs=1,
-                name="unit_normal",
+                name="unit_normal_small",
             )
+
+            cplex_model.quadratic_constraints.add(
+                quad_expr=SparseTriple(
+                    ind1=indices_sphere2,
+                    ind2=indices_sphere2,
+                    val=len(indices_sphere2) * [1],
+                ),
+                rhs=1,
+                name="unit_normal_high",
+            )
+
+            concentration_variables = [
+                "lnc_{}".format(metabolite.id) for metabolite in self.metabolites
+            ]
+
+            cmp_chol_vector_small = self.compound_vector_matrix @ cholesky_small
+            cmp_chol_vector_high = self.compound_vector_matrix @ cholesky_high
+
+            # Add the delG constraints
+            for reaction in self.reactions:
+                if reaction.id in self.Exclude_reactions:
+                    continue
+                rxn_stoichiometry = reaction.cal_stoichiometric_matrix()
+                rxn_stoichiometry = rxn_stoichiometry[np.newaxis, :]
+
+                coefficient_matrix_small = (
+                    np.sqrt(chi2_value_small)
+                    * rxn_stoichiometry
+                    @ cmp_chol_vector_small
+                )
+
+                coefficient_matrix_high = (
+                    np.sqrt(chi2_value_high) * rxn_stoichiometry @ cmp_chol_vector_high
+                )
+
+                concentration_coefficients = RT * rxn_stoichiometry
+
+                concentration_exp = SparsePair(
+                    ind=concentration_variables,
+                    val=concentration_coefficients.flatten().tolist(),
+                )
+
+                delG_err_exp_small = SparsePair(
+                    ind=sphere1_variables,
+                    val=coefficient_matrix_small.flatten().tolist(),
+                )
+                delG_err_exp_high = SparsePair(
+                    ind=sphere2_variables,
+                    val=coefficient_matrix_high.flatten().tolist(),
+                )
+
+                delG_for_var = solver_interface.getVarByName(
+                    "dG_{}".format(reaction.forward_variable.name)
+                )
+                delG_rev_var = solver_interface.getVarByName(
+                    "dG_{}".format(reaction.reverse_variable.name)
+                )
+                rhs = reaction.delG_prime + reaction.delG_transport
+
+                solver_interface.addConstr(
+                    delG_for_var
+                    - concentration_exp
+                    - delG_err_exp_high
+                    - delG_err_exp_small,
+                    GRB.EQUAL,
+                    rhs,
+                    name="delG_{}".format(reaction.forward_variable.name),
+                )
+
+                solver_interface.addConstr(
+                    delG_rev_var
+                    + concentration_exp
+                    + delG_err_exp_high
+                    + delG_err_exp_small,
+                    GRB.EQUAL,
+                    -rhs,
+                    name="delG_{}".format(reaction.reverse_variable.name),
+                )
 
             return cplex_model
 
