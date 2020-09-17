@@ -833,46 +833,61 @@ class tmodel(Model):
 
                 concentration_coefficients = RT * rxn_stoichiometry
 
-                concentration_exp = SparsePair(
-                    ind=concentration_variables,
-                    val=concentration_coefficients.flatten().tolist(),
+                coefficients_forward = np.hstack(
+                    (
+                        np.array((1)),
+                        -1 * concentration_coefficients.flatten(),
+                        -1 * coefficient_matrix_small.flatten(),
+                        -1 * coefficient_matrix_high.flatten(),
+                    )
                 )
 
-                delG_err_exp_small = SparsePair(
-                    ind=sphere1_variables,
-                    val=coefficient_matrix_small.flatten().tolist(),
-                )
-                delG_err_exp_high = SparsePair(
-                    ind=sphere2_variables,
-                    val=coefficient_matrix_high.flatten().tolist(),
+                coefficients_reverse = np.hstack(
+                    (
+                        np.array((1)),
+                        concentration_coefficients.flatten(),
+                        coefficient_matrix_small.flatten(),
+                        coefficient_matrix_high.flatten(),
+                    )
                 )
 
-                delG_for_var = solver_interface.getVarByName(
-                    "dG_{}".format(reaction.forward_variable.name)
+                variable_order_forward = (
+                    ["dG_{}".format(reaction.forward_variable.name)]
+                    + concentration_variables
+                    + list(indices_sphere1)
+                    + list(indices_sphere2)
                 )
-                delG_rev_var = solver_interface.getVarByName(
-                    "dG_{}".format(reaction.reverse_variable.name)
+                variable_order_reverse = (
+                    ["dG_{}".format(reaction.reverse_variable.name)]
+                    + concentration_variables
+                    + list(indices_sphere1)
+                    + list(indices_sphere2)
                 )
+
                 rhs = reaction.delG_prime + reaction.delG_transport
 
-                solver_interface.addConstr(
-                    delG_for_var
-                    - concentration_exp
-                    - delG_err_exp_high
-                    - delG_err_exp_small,
-                    GRB.EQUAL,
-                    rhs,
-                    name="delG_{}".format(reaction.forward_variable.name),
+                cplex_model.linear_constraints.add(
+                    lin_expr=[
+                        SparsePair(
+                            ind=variable_order_forward,
+                            val=coefficients_forward.tolist(),
+                        )
+                    ],
+                    senses=["E"],
+                    rhs=[rhs],
+                    names=["delG_{}".format(reaction.forward_variable.name)],
                 )
 
-                solver_interface.addConstr(
-                    delG_rev_var
-                    + concentration_exp
-                    + delG_err_exp_high
-                    + delG_err_exp_small,
-                    GRB.EQUAL,
-                    -rhs,
-                    name="delG_{}".format(reaction.reverse_variable.name),
+                cplex_model.linear_constraints.add(
+                    lin_expr=[
+                        SparsePair(
+                            ind=variable_order_reverse,
+                            val=coefficients_reverse.tolist(),
+                        )
+                    ],
+                    senses=["E"],
+                    rhs=[-rhs],
+                    names=["delG_{}".format(reaction.reverse_variable.name)],
                 )
 
             return cplex_model
