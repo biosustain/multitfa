@@ -13,6 +13,7 @@ from ..util.constraints import (
 from copy import deepcopy, copy
 from ..util.dGf_calculation import calculate_dGf, cholesky_decomposition
 from ..util.posdef import isPD, nearestPD
+from ..util.linalg_fun import *
 from ..util.util_func import Exclude_quadratic, correlated_pairs, quadratic_matrices
 from .compound import Thermo_met
 from warnings import warn
@@ -42,6 +43,18 @@ if not os.path.exists(logs_dir):
 
 logging.basicConfig(
     filename=logs_dir + os.sep + "thermo_model.log", level=logging.DEBUG
+)
+
+cache_file = os.path.normpath(
+    os.path.dirname(os.path.abspath(__file__))
+    + os.sep
+    + os.pardir
+    + os.sep
+    + os.pardir
+    + os.sep
+    + "cache"
+    + os.sep
+    + "compounds_cache.pickle"
 )
 
 
@@ -221,44 +234,10 @@ class tmodel(Model):
             return self._problematic_rxns
 
     @property
-    def sphere_variables(self):
-        """List of independent variables that represent the whole solution space. The covariance matrix is rank-deficient. Dependent variables can be written in linear combination of independent variables using cholesky matrix.
-
-        Returns
-        -------
-        List
-            List of optlang interface variables
-        """
-        try:
-            return self._sphere_variables
-        except AttributeError:
-            self._sphere_variables = [
-                var
-                for var in self._miqc_solver.variables
-                if var.name.startswith("Sphere_")
-            ]
-            return self._sphere_variables
-
-    @property
     def component_variables(self):
         return np.array(
             [var for var in self.variables if var.name.startswith("component_")]
         )
-
-    @property
-    def correlated_metabolites(self):
-        """Metabolites that are highly correlated thermodynamically, for example they share many common groups or co-occur all the time in training data.
-
-        Returns
-        -------
-        Dict
-            Dictionary of correlated metabolites
-        """
-        try:
-            return self._correlated_metabolites
-        except AttributeError:
-            self._correlated_metabolites = correlated_pairs(self)
-            return self._correlated_metabolites
 
     @property
     def metabolite_equilibrator_accessions(self):
@@ -271,25 +250,33 @@ class tmodel(Model):
             return self._metabolite_equilibrator_accessions
 
     def populate_metabolite_properties(self):
-        if self.populate_from_cache:
-            with open(self.cache_file, "rb") as handle:
-                metabolite_accessions = pickle.load(handle)
-            return metabolite_accessions[0]
-        else:
+        if os.path.isfile(cache_file):
+            with open(cache_file, "rb") as handle:
+                metabolite_accessions, microspecies, mg_dissociation_data = pickle.load(
+                    handle
+                )
+
             accessions = {}
             for metabolite in self.metabolites:
-                eq_accession = api.get_compound(metabolite.Kegg_id)
-                accessions[metabolite.id] = eq_accession
+                if metabolite.Kegg_id in metabolite_accessions:
+                    accessions[metabolite.id] = metabolite_accessions[
+                        metabolite.Kegg_id
+                    ]
+                else:
+                    eq_accession = api.get_compound(metabolite.Kegg_id)
+                    accessions[metabolite.id] = eq_accession
+                    # update the cache file
+                    metabolite_accessions[metabolite.Kegg_id] = eq_accession
+                    microspecies[metabolite.Kegg_id] = eq_accession.microspecies
+                    mg_dissociation_data[
+                        metabolite.Kegg_id
+                    ] = eq_accession.magnesium_dissociation_constants
 
-            # Create a cache file for next use
-            compounds, microspecies, mg_dissociations = ({}, {}, {})
-            for key in accessions:
-                compounds[key] = accessions[key]
-                microspecies[key] = accessions[key].microspecies
-                mg_dissociations[key] = accessions[key].magnesium_dissociation_constants
-
-            with open(cwd + os.sep + "compound_cache.pickle", "wb") as handle:
-                pickle.dump([compounds, microspecies, mg_dissociations], handle)
+            # Re-write the cache file with updated values
+            with open(cache_file, "wb") as handle:
+                pickle.dump(
+                    [metabolite_accessions, microspecies, mg_dissociation_data], handle
+                )
 
             return accessions
 
@@ -305,26 +292,6 @@ class tmodel(Model):
                 comp_vector[met_index, :] = metabolite.compound_vector
             self._compound_vector_matrix = comp_vector
             return self._compound_vector_matrix
-
-    @property
-    def error_expression(self):
-        try:
-            return self._error_expression
-        except AttributeError:
-            n_core_rxn = len(self.reactions) - len(self.Exclude_reactions)
-            stoichiometry_core = np.zeros((2 * n_core_rxn, len(self.metabolites)))
-            component_variables = np.array(
-                [var for var in self.variables if var.name.startswith("component_")]
-            )
-            stoichiometry_core = self.core_stoichiometry()
-            self._error_expression = (
-                stoichiometry_core
-                @ self.compound_vector_matrix
-                @ cholesky
-                @ self.sphere_variables,
-                stoichiometry_core @ self.compound_vector_matrix @ component_variables,
-            )
-            return self._error_expression
 
     def core_stoichiometry(self):
         n_core_rxn = len(self.reactions) - len(self.Exclude_reactions)
@@ -388,7 +355,9 @@ class tmodel(Model):
             )
 
             delG_err_variable = self.problem.Variable(
-                "dG_err_{}".format(metabolite.id), lb=-1000, ub=1000,
+                "dG_err_{}".format(metabolite.id),
+                lb=-1.96 * np.sqrt(metabolite.std_dev),
+                ub=1.96 * np.sqrt(metabolite.std_dev),
             )
             conc_variables.append(conc_variable)
             dG_err_vars.append(delG_err_variable)
@@ -499,6 +468,7 @@ class tmodel(Model):
             delG_constraint_box.extend([delG_f, delG_r])
 
         # Add a constraint to link error on metabolite to component variables
+        """
         exclude_metabolites = []
         for rxnid in self.Exclude_reactions:
             reaction = self.reactions.get_by_id(rxnid)
@@ -518,7 +488,7 @@ class tmodel(Model):
             )
 
             delG_constraint_box.append(err_constraint)
-
+        """
         return (
             rxn_common_constraints,
             delG_constraint_box,
@@ -618,7 +588,224 @@ class tmodel(Model):
         :rtype: [type]
         """
 
-        if self.solver.__class__.__module__ == "optlang.gurobi_interface":
+        # Determine number of independent component variables
+        independent_var_indices = []
+        for ind in range(self.compound_vector_matrix.shape[1]):
+            if np.any(self.compound_vector_matrix[:, ind]):
+                independent_var_indices.append(ind)
+
+        metabolite_independent_vector = self.compound_vector_matrix[
+            :, independent_var_indices
+        ]
+
+        covar_independent_components = covariance[:, independent_var_indices]
+        covar_independent_components = covar_independent_components[
+            independent_var_indices, :
+        ]
+
+        # Pick variances greater than 1000
+        high_var_indices = np.where(np.diag(covar_independent_components) > 1000)[0]
+        low_variance_indices = np.where(np.diag(covar_independent_components) < 1000)[0]
+
+        if len(low_variance_indices) > 0:
+            small_component_covar = covar_independent_components[
+                :, low_variance_indices
+            ]
+            small_component_covar = small_component_covar[low_variance_indices, :]
+            cholesky_small = matrix_decomposition(small_component_covar)
+            chi2_value_small = stat.chi2.isf(q=0.05, df=cholesky_small.shape[1])
+
+            for i in high_var_indices:
+                zeros_axis = np.zeros((cholesky_small.shape[1],))
+                cholesky_small = np.insert(cholesky_small, i, zeros_axis, axis=0)
+            cmp_chol_vector_small = metabolite_independent_vector @ cholesky_small
+
+        if len(high_var_indices) > 0:
+            big_component_covar = covar_independent_components[:, high_var_indices]
+            big_component_covar = big_component_covar[high_var_indices, :]
+            cholesky_high = matrix_decomposition(big_component_covar)
+            chi2_value_high = stat.chi2.isf(q=0.05, df=cholesky_high.shape[1])
+
+            # Insert empty rows for the low_variance_components
+            for i in low_variance_indices:
+                zeros_axis = np.zeros((cholesky_high.shape[1],))
+                cholesky_high = np.insert(cholesky_high, i, zeros_axis, axis=0)
+            cmp_chol_vector_high = metabolite_independent_vector @ cholesky_high
+
+        proton_indices = [
+            self.metabolites.index(metabolite)
+            for metabolite in self.metabolites
+            if metabolite.equilibrator_accession.inchi_key == PROTON_INCHI_KEY
+        ]
+
+        if self.solver.__class__.__module__ == "optlang.cplex_interface":
+
+            from cplex import Cplex, SparseTriple, SparsePair
+
+            tmp_dir = cwd + os.sep + os.pardir + os.sep + "tmp"
+
+            if not os.path.exists(tmp_dir):
+                os.makedirs(tmp_dir)
+
+            rand_str = "".join(choices(string.ascii_lowercase + string.digits, k=6))
+            # write cplex model to mps file and re read
+            self.solver.problem.write(tmp_dir + os.sep + rand_str + ".mps")
+            # Instantiate Cplex model
+            cplex_model = Cplex()
+            cplex_model.read(tmp_dir + os.sep + rand_str + ".mps")
+
+            remove_vars = [
+                var
+                for var in cplex_model.variables.get_names()
+                if var.startswith("component_") or var.startswith("dG_err_")
+            ]
+
+            remove_constrs = [
+                cons
+                for cons in cplex_model.linear_constraints.get_names()
+                if cons.startswith("delG_") or cons.startswith("std_dev_")
+            ]
+
+            cplex_model.linear_constraints.delete(remove_constrs)
+            cplex_model.variables.delete(remove_vars)
+
+            if len(low_variance_indices) > 0:
+                indices_sphere1 = cplex_model.variables.add(
+                    names=[
+                        "Sphere1_{}".format(i) for i in range(cholesky_small.shape[1])
+                    ],
+                    lb=[-1] * cholesky_small.shape[1],
+                    ub=[1] * cholesky_small.shape[1],
+                )
+
+                # Add the Sphere constraint
+                cplex_model.quadratic_constraints.add(
+                    quad_expr=SparseTriple(
+                        ind1=indices_sphere1,
+                        ind2=indices_sphere1,
+                        val=len(indices_sphere1) * [1],
+                    ),
+                    sense="L",
+                    rhs=1,
+                    name="unit_normal_small",
+                )
+            else:
+                indices_sphere1 = []
+
+            if len(high_var_indices) > 0:
+                indices_sphere2 = cplex_model.variables.add(
+                    names=[
+                        "Sphere2_{}".format(i) for i in range(cholesky_high.shape[1])
+                    ],
+                    lb=[-1] * cholesky_high.shape[1],
+                    ub=[1] * cholesky_high.shape[1],
+                )
+
+                cplex_model.quadratic_constraints.add(
+                    quad_expr=SparseTriple(
+                        ind1=indices_sphere2,
+                        ind2=indices_sphere2,
+                        val=len(indices_sphere2) * [1],
+                    ),
+                    rhs=1,
+                    sense="L",
+                    name="unit_normal_high",
+                )
+            else:
+                indices_sphere2 = []
+
+            concentration_variables = [
+                "lnc_{}".format(metabolite.id) for metabolite in self.metabolites
+            ]
+
+            # Add the delG constraints
+            for reaction in self.reactions:
+                if reaction.id in self.Exclude_reactions:
+                    continue
+                rxn_stoichiometry = reaction.cal_stoichiometric_matrix()
+                rxn_stoichiometry = rxn_stoichiometry[np.newaxis, :]
+
+                if len(low_variance_indices) > 0:
+                    coefficient_matrix_small = (
+                        np.sqrt(chi2_value_small)
+                        * rxn_stoichiometry
+                        @ cmp_chol_vector_small
+                    )
+                else:
+                    coefficient_matrix_small = np.array(())
+
+                if len(high_var_indices) > 0:
+                    coefficient_matrix_high = (
+                        np.sqrt(chi2_value_high)
+                        * rxn_stoichiometry
+                        @ cmp_chol_vector_high
+                    )
+                else:
+                    coefficient_matrix_high = np.array(())
+
+                concentration_coefficients = RT * rxn_stoichiometry
+                concentration_coefficients[0, proton_indices] = 0
+
+                coefficients_forward = np.hstack(
+                    (
+                        np.array((1)),
+                        -1 * concentration_coefficients.flatten(),
+                        -1 * coefficient_matrix_small.flatten(),
+                        -1 * coefficient_matrix_high.flatten(),
+                    )
+                )
+
+                coefficients_reverse = np.hstack(
+                    (
+                        np.array((1)),
+                        concentration_coefficients.flatten(),
+                        coefficient_matrix_small.flatten(),
+                        coefficient_matrix_high.flatten(),
+                    )
+                )
+
+                variable_order_forward = (
+                    ["dG_{}".format(reaction.forward_variable.name)]
+                    + concentration_variables
+                    + list(indices_sphere1)
+                    + list(indices_sphere2)
+                )
+                variable_order_reverse = (
+                    ["dG_{}".format(reaction.reverse_variable.name)]
+                    + concentration_variables
+                    + list(indices_sphere1)
+                    + list(indices_sphere2)
+                )
+
+                rhs = reaction.delG_prime + reaction.delG_transport
+
+                cplex_model.linear_constraints.add(
+                    lin_expr=[
+                        SparsePair(
+                            ind=variable_order_forward,
+                            val=coefficients_forward.tolist(),
+                        )
+                    ],
+                    senses=["E"],
+                    rhs=[rhs],
+                    names=["delG_{}".format(reaction.forward_variable.name)],
+                )
+
+                cplex_model.linear_constraints.add(
+                    lin_expr=[
+                        SparsePair(
+                            ind=variable_order_reverse,
+                            val=coefficients_reverse.tolist(),
+                        )
+                    ],
+                    senses=["E"],
+                    rhs=[-rhs],
+                    names=["delG_{}".format(reaction.reverse_variable.name)],
+                )
+
+            return cplex_model
+
+        elif self.solver.__class__.__module__ == "optlang.gurobi_interface":
             from gurobipy import LinExpr, GRB
 
             solver_interface = self.solver.problem.copy()
@@ -742,155 +929,6 @@ class tmodel(Model):
             solver_interface.update()
 
             return solver_interface
-
-        elif self.solver.__class__.__module__ == "optlang.cplex_interface":
-
-            from cplex import Cplex, SparseTriple, SparsePair
-
-            tmp_dir = cwd + os.sep + os.pardir + os.sep + "tmp"
-
-            if not os.path.exists(tmp_dir):
-                os.makedirs(tmp_dir)
-
-            rand_str = "".join(choices(string.ascii_lowercase + string.digits, k=6))
-            # write cplex model to mps file and re read
-            self.solver.problem.write(tmp_dir + os.sep + rand_str + ".mps")
-            # Instantiate Cplex model
-            cplex_model = Cplex()
-            cplex_model.read(tmp_dir + os.sep + rand_str + ".mps")
-
-            remove_vars = [
-                var
-                for var in cplex_model.variables.get_names()
-                if var.startswith("component_") or var.startswith("dG_err_")
-            ]
-
-            remove_constrs = [
-                cons
-                for cons in cplex_model.linear_constraints.get_names()
-                if cons.startswith("delG_") or cons.startswith("std_dev_")
-            ]
-
-            cplex_model.linear_constraints.delete(remove_constrs)
-            cplex_model.variables.delete(remove_vars)
-
-            indices_sphere1 = cplex_model.variables.add(
-                names=["Sphere1_{}".format(i) for i in range(cholesky_small.shape[1])],
-                lb=[-1] * cholesky_small.shape[1],
-                ub=[1] * cholesky_small.shape[1],
-            )
-
-            indices_sphere2 = cplex_model.variables.add(
-                names=["Sphere2_{}".format(i) for i in range(cholesky_high.shape[1])],
-                lb=[-1] * cholesky_high.shape[1],
-                ub=[1] * cholesky_high.shape[1],
-            )
-
-            # Add the Sphere constraint
-            cplex_model.quadratic_constraints.add(
-                quad_expr=SparseTriple(
-                    ind1=indices_sphere1,
-                    ind2=indices_sphere1,
-                    val=len(indices_sphere1) * [1],
-                ),
-                rhs=1,
-                name="unit_normal_small",
-            )
-
-            cplex_model.quadratic_constraints.add(
-                quad_expr=SparseTriple(
-                    ind1=indices_sphere2,
-                    ind2=indices_sphere2,
-                    val=len(indices_sphere2) * [1],
-                ),
-                rhs=1,
-                name="unit_normal_high",
-            )
-
-            concentration_variables = [
-                "lnc_{}".format(metabolite.id) for metabolite in self.metabolites
-            ]
-
-            cmp_chol_vector_small = self.compound_vector_matrix @ cholesky_small
-            cmp_chol_vector_high = self.compound_vector_matrix @ cholesky_high
-
-            # Add the delG constraints
-            for reaction in self.reactions:
-                if reaction.id in self.Exclude_reactions:
-                    continue
-                rxn_stoichiometry = reaction.cal_stoichiometric_matrix()
-                rxn_stoichiometry = rxn_stoichiometry[np.newaxis, :]
-
-                coefficient_matrix_small = (
-                    np.sqrt(chi2_value_small)
-                    * rxn_stoichiometry
-                    @ cmp_chol_vector_small
-                )
-
-                coefficient_matrix_high = (
-                    np.sqrt(chi2_value_high) * rxn_stoichiometry @ cmp_chol_vector_high
-                )
-
-                concentration_coefficients = RT * rxn_stoichiometry
-
-                coefficients_forward = np.hstack(
-                    (
-                        np.array((1)),
-                        -1 * concentration_coefficients.flatten(),
-                        -1 * coefficient_matrix_small.flatten(),
-                        -1 * coefficient_matrix_high.flatten(),
-                    )
-                )
-
-                coefficients_reverse = np.hstack(
-                    (
-                        np.array((1)),
-                        concentration_coefficients.flatten(),
-                        coefficient_matrix_small.flatten(),
-                        coefficient_matrix_high.flatten(),
-                    )
-                )
-
-                variable_order_forward = (
-                    ["dG_{}".format(reaction.forward_variable.name)]
-                    + concentration_variables
-                    + list(indices_sphere1)
-                    + list(indices_sphere2)
-                )
-                variable_order_reverse = (
-                    ["dG_{}".format(reaction.reverse_variable.name)]
-                    + concentration_variables
-                    + list(indices_sphere1)
-                    + list(indices_sphere2)
-                )
-
-                rhs = reaction.delG_prime + reaction.delG_transport
-
-                cplex_model.linear_constraints.add(
-                    lin_expr=[
-                        SparsePair(
-                            ind=variable_order_forward,
-                            val=coefficients_forward.tolist(),
-                        )
-                    ],
-                    senses=["E"],
-                    rhs=[rhs],
-                    names=["delG_{}".format(reaction.forward_variable.name)],
-                )
-
-                cplex_model.linear_constraints.add(
-                    lin_expr=[
-                        SparsePair(
-                            ind=variable_order_reverse,
-                            val=coefficients_reverse.tolist(),
-                        )
-                    ],
-                    senses=["E"],
-                    rhs=[-rhs],
-                    names=["delG_{}".format(reaction.reverse_variable.name)],
-                )
-
-            return cplex_model
 
         else:
             raise NotImplementedError("Current solver doesn't support QC")
