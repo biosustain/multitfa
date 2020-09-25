@@ -128,13 +128,9 @@ class tmodel(Model):
 
         try:
             self._solver = deepcopy(model.solver)
-            # self._miqc_solver = deepcopy(model.solver)
             # Cplex has an issue with deep copies
         except Exception:  # pragma: no cover
             self._solver = copy(model.solver)  # pragma: no cover
-            # self._miqc_solver = copy(
-            #    model.solver
-            # )  # creating this for adding different delG constraint to copy later to gurobi and cplex interfaces
 
         self.Exclude_list = Exclude_list
         self.solver.configuration.tolerances.integrality = tolerance_integral
@@ -172,18 +168,6 @@ class tmodel(Model):
             if self.solver.__class__.__module__ == "optlang.cplex_interface":
                 self._cplex_interface = self.Quadratic_constraint()
                 return self._cplex_interface
-
-    @property
-    def covariance_dG(self):
-        """Covariance matrix of the reactants and groups from component contribution method. Borrowed from equilibrator-api. This covariance matrix is used for sampling from multi-dimensional space. 
-        Note: This matrix is rank-deficient matrix
-
-        Returns
-        -------
-        np.ndarray
-            covariance matrix of the components
-        """
-        return covariance
 
     @property
     def problem_metabolites(self):
@@ -333,18 +317,6 @@ class tmodel(Model):
         )
         self.add_cons_vars(component_variables.tolist())
 
-        # Add variables for the independent components, number will be equal to rank of component covariance matrix
-        # n_independent = cholesky.shape[1]  # Independent variables from cholesky
-        # sphere_vars = np.array(
-        #    [
-        #        self.problem.Variable("Sphere_{}".format(i), lb=-1, ub=1)
-        #        for i in range(n_independent)
-        #    ]
-        # )
-        # self._miqc_solver.add(
-        #    sphere_vars.tolist()
-        # )  # These variable are not used for box method, only for the MIQCP
-
         # Add metabolite concentration variable and error variable for the metabolite
         conc_variables, dG_err_vars = ([], [])
         for metabolite in self.metabolites:
@@ -363,7 +335,6 @@ class tmodel(Model):
             dG_err_vars.append(delG_err_variable)
 
         self.add_cons_vars(conc_variables + dG_err_vars)
-        # self._miqc_solver.add(conc_variables)
 
         # Adding the thermo variables for reactions, delG_reaction and indicator (binary)
         rxn_variables = []
@@ -395,7 +366,6 @@ class tmodel(Model):
                 [delG_forward, delG_reverse, indicator_forward, indicator_reverse]
             )
         self.add_cons_vars(rxn_variables)
-        # self._miqc_solver.add(rxn_variables)  # for the MIQC constraints
 
         self._var_update = True
 
@@ -414,11 +384,8 @@ class tmodel(Model):
         if not self._var_update:
             self.update_thermo_variables()
 
-        # Now we create common constraints between MIQC method and MIP methods and later add the delG constraint separately
-
         rxn_common_constraints = []
         delG_constraint_box = []
-        delG_constraint_QC = []
         # Now add reaction variables and generate remaining constraints
         for rxn in self.reactions:
             if rxn.id in self.Exclude_reactions:
@@ -426,7 +393,7 @@ class tmodel(Model):
                     "Reaction {} is excluded from thermodyanmic analysis".format(rxn.id)
                 )
                 continue
-            print(rxn.id)
+
             # Directionality constraint
             dir_f, dir_r = directionality(rxn)
             ind_f, ind_r = delG_indicator(rxn)
@@ -467,28 +434,6 @@ class tmodel(Model):
             )
             delG_constraint_box.extend([delG_f, delG_r])
 
-        # Add a constraint to link error on metabolite to component variables
-        """
-        exclude_metabolites = []
-        for rxnid in self.Exclude_reactions:
-            reaction = self.reactions.get_by_id(rxnid)
-            for metabolite, stoic in reaction.metabolites.items():
-                exclude_metabolites.append(metabolite)
-
-        # Now add the constraint linking metabolite error term with component variables
-
-        for metabolite in self.metabolites:
-            if metabolite in exclude_metabolites:
-                continue
-            err_constraint = self.problem.Constraint(
-                metabolite.delG_err_variable - metabolite.std_dev_expression,
-                lb=0,
-                ub=0,
-                name="std_dev_{}".format(metabolite.id),
-            )
-
-            delG_constraint_box.append(err_constraint)
-        """
         return (
             rxn_common_constraints,
             delG_constraint_box,
@@ -511,19 +456,7 @@ class tmodel(Model):
                 )
                 self.solver.remove(cons.name)
                 self.add_cons_vars([cons])
-            """
-            if cons.name not in self._miqc_solver.constraints:
-                self._miqc_solver.add([cons])
-                logging.debug("Constraint {} added to the model".format(cons.name))
-            else:
-                logging.warning(
-                    "Constraint {} already in the model, removing previous entry".format(
-                        cons.name
-                    )
-                )
-                self._miqc_solver.remove(cons.name)
-                self._miqc_solver.add([cons])
-            """
+
         for cons in delG_box_constraints:
             if cons.name not in self.constraints:
                 self.add_cons_vars([cons])
@@ -588,61 +521,76 @@ class tmodel(Model):
         :rtype: [type]
         """
 
-        # Determine number of independent component variables
-        independent_var_indices = []
-        for ind in range(self.compound_vector_matrix.shape[1]):
-            if np.any(self.compound_vector_matrix[:, ind]):
-                independent_var_indices.append(ind)
-
-        metabolite_independent_vector = self.compound_vector_matrix[
-            :, independent_var_indices
+        # Pick indices of components present in the current model
+        model_component_indices = [
+            i
+            for i in range(self.compound_vector_matrix.shape[1])
+            if np.any(self.compound_vector_matrix[:, i])
         ]
 
-        covar_independent_components = covariance[:, independent_var_indices]
-        covar_independent_components = covar_independent_components[
-            independent_var_indices, :
+        # Reduced the compound_vector to contain only the non zero entries
+        model_compound_vector = self.compound_vector_matrix[:, model_component_indices]
+
+        # Now extract the sub covariance matrix containing only the components present in the model
+        component_model_covariance = covariance[:, model_component_indices][
+            model_component_indices, :
         ]
 
-        # Pick variances greater than 1000
-        high_var_indices = np.where(np.diag(covar_independent_components) > 1000)[0]
-        low_variance_indices = np.where(np.diag(covar_independent_components) < 1000)[0]
+        # Now separate the compounds that have variance > 1000 and others to avoid numerical issues
+        high_variance_indices = np.where(np.diag(component_model_covariance) > 1000)[0]
+        low_variance_indices = np.where(np.diag(component_model_covariance) < 1000)[0]
 
+        # Calculate cholesky matrix for two different covariance matrices
         if len(low_variance_indices) > 0:
-            small_component_covar = covar_independent_components[
+            small_component_covariance = component_model_covariance[
                 :, low_variance_indices
-            ]
-            small_component_covar = small_component_covar[low_variance_indices, :]
-            cholesky_small = matrix_decomposition(small_component_covar)
-            chi2_value_small = stat.chi2.isf(q=0.05, df=cholesky_small.shape[1])
+            ][low_variance_indices, :]
+            cholesky_small_variance = matrix_decomposition(small_component_covariance)
+            chi2_value_small = stat.chi2.isf(
+                q=0.05, df=cholesky_small_variance.shape[1]
+            )  # Chi-square value to map confidence interval
 
-            for i in high_var_indices:
-                zeros_axis = np.zeros((cholesky_small.shape[1],))
-                cholesky_small = np.insert(cholesky_small, i, zeros_axis, axis=0)
-            cmp_chol_vector_small = metabolite_independent_vector @ cholesky_small
+            for i in high_variance_indices:
+                zeros_axis = np.zeros((cholesky_small_variance.shape[1],))
+                cholesky_small_variance = np.insert(
+                    cholesky_small_variance, i, zeros_axis, axis=0
+                )
 
-        if len(high_var_indices) > 0:
-            big_component_covar = covar_independent_components[:, high_var_indices]
-            big_component_covar = big_component_covar[high_var_indices, :]
-            cholesky_high = matrix_decomposition(big_component_covar)
-            chi2_value_high = stat.chi2.isf(q=0.05, df=cholesky_high.shape[1])
+            metabolite_sphere_small = (
+                model_compound_vector @ cholesky_small_variance
+            )  # This is a fixed term compound_vector @ cholesky
+
+        if len(high_variance_indices) > 0:
+            large_component_covariance = component_model_covariance[
+                :, high_variance_indices
+            ][
+                high_variance_indices, :
+            ]  # Covariance matrix for the high variance components
+
+            cholesky_large_variance = matrix_decomposition(large_component_covariance)
+            chi2_value_high = stat.chi2.isf(q=0.05, df=cholesky_large_variance.shape[1])
 
             # Insert empty rows for the low_variance_components
             for i in low_variance_indices:
-                zeros_axis = np.zeros((cholesky_high.shape[1],))
-                cholesky_high = np.insert(cholesky_high, i, zeros_axis, axis=0)
-            cmp_chol_vector_high = metabolite_independent_vector @ cholesky_high
+                zeros_axis = np.zeros((cholesky_large_variance.shape[1],))
+                cholesky_large_variance = np.insert(
+                    cholesky_large_variance, i, zeros_axis, axis=0
+                )
+            metabolite_sphere_large = (
+                model_compound_vector @ cholesky_large_variance
+            )  # This is a fixed term compound_vector @ cholesky
 
         proton_indices = [
             self.metabolites.index(metabolite)
             for metabolite in self.metabolites
             if metabolite.equilibrator_accession.inchi_key == PROTON_INCHI_KEY
-        ]
+        ]  # Get indices of protons in metabolite list to avoid douuble correcting them for concentrations
 
         if self.solver.__class__.__module__ == "optlang.cplex_interface":
 
             from cplex import Cplex, SparseTriple, SparsePair
 
-            tmp_dir = cwd + os.sep + os.pardir + os.sep + "tmp"
+            tmp_dir = cwd + os.sep + "tmp"
 
             if not os.path.exists(tmp_dir):
                 os.makedirs(tmp_dir)
@@ -650,33 +598,37 @@ class tmodel(Model):
             rand_str = "".join(choices(string.ascii_lowercase + string.digits, k=6))
             # write cplex model to mps file and re read
             self.solver.problem.write(tmp_dir + os.sep + rand_str + ".mps")
+
             # Instantiate Cplex model
             cplex_model = Cplex()
             cplex_model.read(tmp_dir + os.sep + rand_str + ".mps")
 
+            # Remove the unnecessary variables and constraints
             remove_vars = [
                 var
                 for var in cplex_model.variables.get_names()
                 if var.startswith("component_") or var.startswith("dG_err_")
-            ]
+            ]  # Remove error variables
 
             remove_constrs = [
                 cons
                 for cons in cplex_model.linear_constraints.get_names()
                 if cons.startswith("delG_") or cons.startswith("std_dev_")
-            ]
+            ]  # Remove delG constraint and re-add with component variables
 
-            cplex_model.linear_constraints.delete(remove_constrs)
-            cplex_model.variables.delete(remove_vars)
+            cplex_model.linear_constraints.delete(remove_constrs)  # Removing constr
+            cplex_model.variables.delete(remove_vars)  # Removing Vars
 
+            # QC for small variance components
             if len(low_variance_indices) > 0:
                 indices_sphere1 = cplex_model.variables.add(
                     names=[
-                        "Sphere1_{}".format(i) for i in range(cholesky_small.shape[1])
+                        "Sphere1_{}".format(i)
+                        for i in range(cholesky_small_variance.shape[1])
                     ],
-                    lb=[-1] * cholesky_small.shape[1],
-                    ub=[1] * cholesky_small.shape[1],
-                )
+                    lb=[-1] * cholesky_small_variance.shape[1],
+                    ub=[1] * cholesky_small_variance.shape[1],
+                )  # Adding independent component variables to the model, store the variable indices
 
                 # Add the Sphere constraint
                 cplex_model.quadratic_constraints.add(
@@ -687,19 +639,21 @@ class tmodel(Model):
                     ),
                     sense="L",
                     rhs=1,
-                    name="unit_normal_small",
+                    name="unit_normal_small_variance",
                 )
             else:
-                indices_sphere1 = []
+                indices_sphere1 = []  # Just to adjust the matrix dimensions later
 
-            if len(high_var_indices) > 0:
+            # QC for large variance components
+            if len(high_variance_indices) > 0:
                 indices_sphere2 = cplex_model.variables.add(
                     names=[
-                        "Sphere2_{}".format(i) for i in range(cholesky_high.shape[1])
+                        "Sphere2_{}".format(i)
+                        for i in range(cholesky_large_variance.shape[1])
                     ],
-                    lb=[-1] * cholesky_high.shape[1],
-                    ub=[1] * cholesky_high.shape[1],
-                )
+                    lb=[-1] * cholesky_large_variance.shape[1],
+                    ub=[1] * cholesky_large_variance.shape[1],
+                )  # Independent large variance components
 
                 cplex_model.quadratic_constraints.add(
                     quad_expr=SparseTriple(
@@ -709,10 +663,10 @@ class tmodel(Model):
                     ),
                     rhs=1,
                     sense="L",
-                    name="unit_normal_high",
+                    name="unit_normal_high_variance",
                 )
             else:
-                indices_sphere2 = []
+                indices_sphere2 = []  # Balancing matrix dimensions
 
             concentration_variables = [
                 "lnc_{}".format(metabolite.id) for metabolite in self.metabolites
@@ -726,22 +680,22 @@ class tmodel(Model):
                 rxn_stoichiometry = rxn_stoichiometry[np.newaxis, :]
 
                 if len(low_variance_indices) > 0:
-                    coefficient_matrix_small = (
+                    coefficient_matrix_small_variance = (
                         np.sqrt(chi2_value_small)
                         * rxn_stoichiometry
-                        @ cmp_chol_vector_small
-                    )
+                        @ metabolite_sphere_small
+                    )  # Coefficient array for small variance ellipsoid
                 else:
-                    coefficient_matrix_small = np.array(())
+                    coefficient_matrix_small_variance = np.array(())
 
-                if len(high_var_indices) > 0:
-                    coefficient_matrix_high = (
+                if len(high_variance_indices) > 0:
+                    coefficient_matrix_large_variance = (
                         np.sqrt(chi2_value_high)
                         * rxn_stoichiometry
-                        @ cmp_chol_vector_high
-                    )
+                        @ metabolite_sphere_large
+                    )  # Coefficient array for large variance ellipsoid
                 else:
-                    coefficient_matrix_high = np.array(())
+                    coefficient_matrix_large_variance = np.array(())
 
                 concentration_coefficients = RT * rxn_stoichiometry
                 concentration_coefficients[0, proton_indices] = 0
@@ -750,8 +704,8 @@ class tmodel(Model):
                     (
                         np.array((1)),
                         -1 * concentration_coefficients.flatten(),
-                        -1 * coefficient_matrix_small.flatten(),
-                        -1 * coefficient_matrix_high.flatten(),
+                        -1 * coefficient_matrix_small_variance.flatten(),
+                        -1 * coefficient_matrix_large_variance.flatten(),
                     )
                 )
 
@@ -759,8 +713,8 @@ class tmodel(Model):
                     (
                         np.array((1)),
                         concentration_coefficients.flatten(),
-                        coefficient_matrix_small.flatten(),
-                        coefficient_matrix_high.flatten(),
+                        coefficient_matrix_small_variance.flatten(),
+                        coefficient_matrix_large_variance.flatten(),
                     )
                 )
 
@@ -789,7 +743,7 @@ class tmodel(Model):
                     senses=["E"],
                     rhs=[rhs],
                     names=["delG_{}".format(reaction.forward_variable.name)],
-                )
+                )  # delG constraint for forward reaction
 
                 cplex_model.linear_constraints.add(
                     lin_expr=[
@@ -801,7 +755,7 @@ class tmodel(Model):
                     senses=["E"],
                     rhs=[-rhs],
                     names=["delG_{}".format(reaction.reverse_variable.name)],
-                )
+                )  # delG constraint for reverse reaction
 
             return cplex_model
 

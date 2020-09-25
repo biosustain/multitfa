@@ -6,9 +6,9 @@ def matrix_decomposition(square_matrix):
     try:
         cholesky = sp.linalg.cholesky(square_matrix, lower=True)
     except:
-        eig_val, eig_vec = sp.linalg.eigh(square_matrix)
-        eig_val[eig_val < 1e-8] = 0
-        outlier = len(np.where(eig_val == 0)[0])
-        cholesky = eig_vec @ np.sqrt(np.diag(eig_val))
-        cholesky = cholesky[:, outlier:]
+        L, D, perm = sp.linalg.ldl(square_matrix)
+        D[D < 1e-8] = 0
+        independent_variables = np.where(np.diag(D) != 0)[0]
+        cholesky = L @ np.sqrt(D)
+        cholesky = cholesky[:, independent_variables]
     return cholesky
