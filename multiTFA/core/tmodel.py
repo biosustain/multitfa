@@ -250,11 +250,12 @@ class tmodel(Model):
                     eq_accession = api.get_compound(metabolite.Kegg_id)
                     accessions[metabolite.id] = eq_accession
                     # update the cache file
-                    metabolite_accessions[metabolite.Kegg_id] = eq_accession
-                    microspecies[metabolite.Kegg_id] = eq_accession.microspecies
-                    mg_dissociation_data[
-                        metabolite.Kegg_id
-                    ] = eq_accession.magnesium_dissociation_constants
+                    if eq_accession is not None:
+                        metabolite_accessions[metabolite.Kegg_id] = eq_accession
+                        microspecies[metabolite.Kegg_id] = eq_accession.microspecies
+                        mg_dissociation_data[
+                            metabolite.Kegg_id
+                        ] = eq_accession.magnesium_dissociation_constants
 
             # Re-write the cache file with updated values
             with open(cache_file, "wb") as handle:
@@ -304,19 +305,6 @@ class tmodel(Model):
         """
         self._var_update = False
 
-        # Add group/rc (component) variables for BOX method (including dependent & independent)
-        component_variables = np.array(
-            [
-                self.problem.Variable(
-                    "component_{}".format(i),
-                    lb=-1.96 * np.sqrt(covariance[i, i]),
-                    ub=1.96 * np.sqrt(covariance[i, i]),
-                )
-                for i in range(len(covariance))
-            ]
-        )
-        self.add_cons_vars(component_variables.tolist())
-
         # Add metabolite concentration variable and error variable for the metabolite
         conc_variables, dG_err_vars = ([], [])
         for metabolite in self.metabolites:
@@ -342,11 +330,11 @@ class tmodel(Model):
             if rxn.id in self.Exclude_reactions:
                 continue
             delG_forward = self.problem.Variable(
-                "dG_{}".format(rxn.forward_variable.name), lb=-1e5, ub=1e5
+                "dG_{}".format(rxn.forward_variable.name), lb=-1e6, ub=1e5
             )
 
             delG_reverse = self.problem.Variable(
-                "dG_{}".format(rxn.reverse_variable.name), lb=-1e5, ub=1e5
+                "dG_{}".format(rxn.reverse_variable.name), lb=-1e6, ub=1e5
             )
 
             indicator_forward = self.problem.Variable(
@@ -583,6 +571,7 @@ class tmodel(Model):
         proton_indices = [
             self.metabolites.index(metabolite)
             for metabolite in self.metabolites
+            if metabolite.equilibrator_accession is not None
             if metabolite.equilibrator_accession.inchi_key == PROTON_INCHI_KEY
         ]  # Get indices of protons in metabolite list to avoid douuble correcting them for concentrations
 
