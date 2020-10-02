@@ -28,6 +28,7 @@ from random import choices
 import string
 from scipy import stats, linalg
 import pickle
+import tempfile
 from equilibrator_api import ComponentContribution, Q_
 
 api = ComponentContribution()
@@ -84,14 +85,11 @@ class tmodel(Model):
         tolerance_integral=1e-9,
         compartment_info=None,
         membrane_potential=None,
-        populate_from_cache=False,
-        cache_file=None,
     ):
 
         self.compartment_info = compartment_info
         self.membrane_potential = membrane_potential
-        self.populate_from_cache = populate_from_cache
-        self.cache_file = cache_file
+
         do_not_copy_by_ref = {
             "metabolites",
             "reactions",
@@ -579,18 +577,15 @@ class tmodel(Model):
 
             from cplex import Cplex, SparseTriple, SparsePair
 
-            tmp_dir = cwd + os.sep + "tmp"
-
-            if not os.path.exists(tmp_dir):
-                os.makedirs(tmp_dir)
-
             rand_str = "".join(choices(string.ascii_lowercase + string.digits, k=6))
-            # write cplex model to mps file and re read
-            self.solver.problem.write(tmp_dir + os.sep + rand_str + ".mps")
+            # write cplex model to mps file in random directory and re read
+            with tempfile.TemporaryDirectory() as td:
+                temp_filename = os.path.join(td, rand_str + ".mps")
+                self.solver.problem.write(temp_filename)
 
             # Instantiate Cplex model
             cplex_model = Cplex()
-            cplex_model.read(tmp_dir + os.sep + rand_str + ".mps")
+            cplex_model.read(temp_filename)
 
             # Remove the unnecessary variables and constraints
             remove_vars = [
