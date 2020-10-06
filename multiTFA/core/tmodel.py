@@ -11,7 +11,6 @@ from ..util.constraints import (
     delG_constraint_expression,
 )
 from copy import deepcopy, copy
-from ..util.dGf_calculation import calculate_dGf, cholesky_decomposition
 from ..util.posdef import isPD, nearestPD
 from ..util.linalg_fun import *
 from ..util.util_func import Exclude_quadratic, correlated_pairs, quadratic_matrices
@@ -584,15 +583,15 @@ class tmodel(Model):
 
             from cplex import Cplex, SparseTriple, SparsePair
 
+            # Instantiate Cplex model
+            cplex_model = Cplex()
+
             rand_str = "".join(choices(string.ascii_lowercase + string.digits, k=6))
             # write cplex model to mps file in random directory and re read
             with tempfile.TemporaryDirectory() as td:
                 temp_filename = os.path.join(td, rand_str + ".mps")
                 self.solver.problem.write(temp_filename)
-
-            # Instantiate Cplex model
-            cplex_model = Cplex()
-            cplex_model.read(temp_filename)
+                cplex_model.read(temp_filename)
 
             # Remove the unnecessary variables and constraints
             remove_vars = [
