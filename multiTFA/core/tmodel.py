@@ -456,7 +456,7 @@ class tmodel(Model):
                 self.solver.remove(cons.name)
                 self.add_cons_vars([cons])
 
-    def optimize(self, solve_method="MIQC", raise_error=False):
+    def optimize(self, solve_method="QC", raise_error=False):
         """ solves the model with given constraints. By default, we try to solve the model with quadratic constraints. Note: Quadratic constraints are supported by Gurobi/Cplex currently. if either of two solvers are not found, one can solve 'box' type MILP problem.
 
         :param solve_method: Method to solve the problem, defaults to "MIQC", any other string input leades to solving with box MILP  
@@ -467,7 +467,7 @@ class tmodel(Model):
         :rtype: solution object (refer to Solution class)
         """
 
-        if solve_method == "MIQC":
+        if solve_method.lower() == "qc":
             if not (
                 optlang.available_solvers["GUROBI"]
                 or optlang.available_solvers["CPLEX"]
@@ -475,7 +475,12 @@ class tmodel(Model):
                 logging.warning(
                     "GUROBI/CPLEX not available, Quadratic constraints are not supported by current solver"
                 )
-                return
+                print(
+                    "GUROBI/CPLEX not available, Quadratic constraints are not supported by current solver, solving MIP problem instead."
+                )
+                self.slim_optimize()
+                solution = get_solution(self, raise_error=raise_error)
+                return solution
 
             if self.solver.__class__.__module__ == "optlang.gurobi_interface":
                 self.gurobi_interface.optimize()
@@ -489,11 +494,13 @@ class tmodel(Model):
 
                 return solution
 
-        else:
+        elif solve_method.lower() == "mip":
             self.slim_optimize()
             solution = get_solution(self, raise_error=raise_error)
 
             return solution
+        else:
+            raise ValueError("Solver not understood")
 
     def Quadratic_constraint(self):
         """ Adds Quadratic constraint to the model's Gurobi/Cplex Interface. 
