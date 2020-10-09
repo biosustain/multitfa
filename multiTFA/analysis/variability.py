@@ -102,13 +102,13 @@ def variability_legacy_gurobi(
 
     model.gurobi_interface.optimize()
     # if warm start not provided start with box solution
-    if len(warm_start) == 0:
-        model.slim_optimize()
-        if model.solver.status == "optimal":
-            for var in model.variables:
-                if var.name.startswith("indicator_"):
-                    warm_start[var.name] = model.solver.primal_values[var.name]
-
+    # if len(warm_start) == 0:
+    #    model.slim_optimize()
+    #    if model.solver.status == "optimal":
+    #        for var in model.variables:
+    #            if var.name.startswith("indicator_"):
+    #                warm_start[var.name] = model.solver.primal_values[var.name]
+    print("updated")
     if min_growth:
         if model.solver.objective.direction == "max":
             fva_old_objective = model.gurobi_interface.addVar(
@@ -192,6 +192,7 @@ def variability_legacy_gurobi(
 import os
 from random import choices
 import string
+import tempfile
 
 
 def variability_legacy_cplex(
@@ -215,13 +216,15 @@ def variability_legacy_cplex(
     if not os.path.exists(tmp_dir):
         os.makedirs(tmp_dir)
 
-    rand_str = "".join(choices(string.ascii_lowercase + string.digits, k=6))
-    # write cplex model to mps file and re read
-    model.cplex_interface.write(tmp_dir + os.pardir + rand_str + ".mps")
-
     # Instantiate Cplex model
     cplex_model = Cplex()
-    cplex_model.read(tmp_dir + os.pardir + rand_str + ".mps")
+    rand_str = "".join(choices(string.ascii_lowercase + string.digits, k=6))
+
+    # write cplex model to mps file and re read
+    with tempfile.TemporaryDirectory() as td:
+        temp_filename = os.path.join(td, rand_str + ".mps")
+        model.cplex_interface.write(temp_filename)
+        cplex_model.read(temp_filename)
 
     # Make shorts for sense
     max_sense = cplex_model.objective.sense.maximize
