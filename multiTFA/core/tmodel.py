@@ -752,61 +752,67 @@ class tmodel(Model):
         elif self.solver.__class__.__module__ == "optlang.gurobi_interface":
             from gurobipy import LinExpr, GRB
 
-            solver_interface = self.solver.problem.copy()
+            gurobi_model = self.solver.problem.copy()
 
             # Remove unnecessary variables and constraints and rebuild  appropriate ones
             remove_vars = [
                 var
-                for var in solver_interface.getVars()
+                for var in gurobi_model.getVars()
                 if var.VarName.startswith("component_")
                 or var.VarName.startswith("dG_err_")
             ]
 
             remove_constrs = [
                 cons
-                for cons in solver_interface.getConstrs()
+                for cons in gurobi_model.getConstrs()
                 if cons.ConstrName.startswith("delG_")
                 or cons.ConstrName.startswith("std_dev_")
             ]
 
-            solver_interface.remove(remove_constrs + remove_vars)
+            gurobi_model.remove(remove_constrs + remove_vars)
 
             # Add sphere variables for smaller set and larger set separately
-            for i in range(cholesky_small.shape[1]):
-                solver_interface.addVar(lb=-1, ub=1, name="Sphere1_{}".format(i))
+            if len(low_variance_indices) > 0:
+                for i in range(cholesky_small_variance.shape[1]):
+                    gurobi_model.addVar(lb=-1, ub=1, name="Sphere1_{}".format(i))
 
-            for i in range(cholesky_high.shape[1]):
-                solver_interface.addVar(lb=-1, ub=1, name="Sphere2_{}".format(i))
+                gurobi_model.update()
+                sphere1_variables = [
+                    var
+                    for var in gurobi_model.getVars()
+                    if var.VarName.startswith("Sphere1_")
+                ]
 
-            solver_interface.update()
+                gurobi_model.addQConstr(
+                    np.sum(np.square(np.array(sphere1_variables))) <= 1,
+                    name="unit_normal_small_variance",
+                )
+                gurobi_model.update()
 
-            sphere1_variables = [
-                var
-                for var in solver_interface.getVars()
-                if var.VarName.startswith("Sphere1_")
-            ]
+            # QC for large variance components
+            if len(high_variance_indices) > 0:
+                for i in range(cholesky_large_variance.shape[1]):
+                    gurobi_model.addVar(lb=-1, ub=1, name="Sphere2_{}".format(i))
 
-            sphere2_variables = [
-                var
-                for var in solver_interface.getVars()
-                if var.VarName.startswith("Sphere2_")
-            ]
+                gurobi_model.update()
+                sphere2_variables = [
+                    var
+                    for var in gurobi_model.getVars()
+                    if var.VarName.startswith("Sphere2_")
+                ]
 
-            # Add the quadratic constraint, i.e unit spheroid for both spheres
-            solver_interface.addQConstr(
-                np.sum(np.square(np.array(sphere1_variables))) <= 1,
-                name="unit_normal_small",
-            )
-            solver_interface.addQConstr(
-                np.sum(np.square(np.array(sphere2_variables))) <= 1,
-                name="unit_normal_high",
-            )
+                gurobi_model.addQConstr(
+                    np.sum(np.square(np.array(sphere2_variables))) <= 1,
+                    name="unit_normal_high_variance",
+                )
+                gurobi_model.update()
+
             # Create a list of metabolite concentration variables
             concentration_variables = []
             for metabolite in self.metabolites:
                 varname = "lnc_{}".format(metabolite.id)
-                var = solver_interface.getVarByName(varname)
-                concentration_variables.append(var)
+                conc_var = gurobi_model.getVarByName(varname)
+                concentration_variables.append(conc_var)
 
             cmp_chol_vector_small = self.compound_vector_matrix @ cholesky_small
             cmp_chol_vector_high = self.compound_vector_matrix @ cholesky_high
