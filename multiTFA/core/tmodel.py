@@ -577,7 +577,7 @@ class tmodel(Model):
             for metabolite in self.metabolites
             if metabolite.equilibrator_accession is not None
             if metabolite.equilibrator_accession.inchi_key == PROTON_INCHI_KEY
-        ]  # Get indices of protons in metabolite list to avoid douuble correcting them for concentrations
+        ]  # Get indices of protons in metabolite list to avoid double correcting them for concentrations
 
         if self.solver.__class__.__module__ == "optlang.cplex_interface":
 
@@ -814,9 +814,6 @@ class tmodel(Model):
                 conc_var = gurobi_model.getVarByName(varname)
                 concentration_variables.append(conc_var)
 
-            cmp_chol_vector_small = self.compound_vector_matrix @ cholesky_small
-            cmp_chol_vector_high = self.compound_vector_matrix @ cholesky_high
-
             # Add the delG constraints
             for reaction in self.reactions:
                 if reaction.id in self.Exclude_reactions:
@@ -824,61 +821,79 @@ class tmodel(Model):
                 rxn_stoichiometry = reaction.cal_stoichiometric_matrix()
                 rxn_stoichiometry = rxn_stoichiometry[np.newaxis, :]
 
-                coefficient_matrix_small = (
-                    np.sqrt(chi2_value_small)
-                    * rxn_stoichiometry
-                    @ cmp_chol_vector_small
-                )
+                if len(low_variance_indices) > 0:
+                    coefficient_matrix_small_variance = (
+                        np.sqrt(chi2_value_small)
+                        * rxn_stoichiometry
+                        @ metabolite_sphere_small
+                    )  # Coefficient array for small variance ellipsoid
+                else:
+                    coefficient_matrix_small_variance = np.array(())
 
-                coefficient_matrix_high = (
-                    np.sqrt(chi2_value_high) * rxn_stoichiometry @ cmp_chol_vector_high
-                )
+                if len(high_variance_indices) > 0:
+                    coefficient_matrix_large_variance = (
+                        np.sqrt(chi2_value_high)
+                        * rxn_stoichiometry
+                        @ metabolite_sphere_large
+                    )  # Coefficient array for large variance ellipsoid
+                else:
+                    coefficient_matrix_large_variance = np.array(())
 
                 concentration_coefficients = RT * rxn_stoichiometry
+                concentration_coefficients[0, proton_indices] = 0
 
-                concentration_exp = LinExpr(
-                    concentration_coefficients.flatten().tolist(),
-                    concentration_variables,
+                coefficients_forward = np.hstack(
+                    (
+                        -1 * concentration_coefficients.flatten(),
+                        -1 * coefficient_matrix_small_variance.flatten(),
+                        -1 * coefficient_matrix_large_variance.flatten(),
+                    )
                 )
 
-                delG_err_exp_small = LinExpr(
-                    coefficient_matrix_small.flatten().tolist(), sphere1_variables
-                )
-                delG_err_exp_high = LinExpr(
-                    coefficient_matrix_high.flatten().tolist(), sphere2_variables
+                coefficients_reverse = np.hstack(
+                    (
+                        concentration_coefficients.flatten(),
+                        coefficient_matrix_small_variance.flatten(),
+                        coefficient_matrix_large_variance.flatten(),
+                    )
                 )
 
-                delG_for_var = solver_interface.getVarByName(
+                variable_order = (
+                    concentration_variables + sphere1_variables + sphere2_variables
+                )
+
+                delG_err_forward = LinExpr(
+                    coefficients_forward.tolist(), variable_order
+                )
+                delG_err_reverse = LinExpr(
+                    coefficients_reverse.tolist(), variable_order
+                )
+
+                delG_for_var = gurobi_model.getVarByName(
                     "dG_{}".format(reaction.forward_variable.name)
                 )
-                delG_rev_var = solver_interface.getVarByName(
+                delG_rev_var = gurobi_model.getVarByName(
                     "dG_{}".format(reaction.reverse_variable.name)
                 )
                 rhs = reaction.delG_prime + reaction.delG_transport
 
-                solver_interface.addConstr(
-                    delG_for_var
-                    - concentration_exp
-                    - delG_err_exp_high
-                    - delG_err_exp_small,
+                gurobi_model.addConstr(
+                    delG_for_var + delG_err_forward,
                     GRB.EQUAL,
                     rhs,
                     name="delG_{}".format(reaction.forward_variable.name),
                 )
 
-                solver_interface.addConstr(
-                    delG_rev_var
-                    + concentration_exp
-                    + delG_err_exp_high
-                    + delG_err_exp_small,
+                gurobi_model.addConstr(
+                    delG_rev_var + delG_err_reverse,
                     GRB.EQUAL,
                     -rhs,
                     name="delG_{}".format(reaction.reverse_variable.name),
                 )
 
-            solver_interface.update()
+            gurobi_model.update()
 
-            return solver_interface
+            return gurobi_model
 
         else:
             raise NotImplementedError("Current solver doesn't support QC")
