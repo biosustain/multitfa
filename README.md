@@ -1,12 +1,23 @@
 # multitFA
 
-This module implements improved version of original thermodynamic meabolic flux analysis (tMFA).Christopher S. Henry, Linda J. Broadbelt, and Vassily Hatzimanikatis. "Thermodynamics-based metabolic flux analysis." Biophysical journal 92.5 (2007): 1792-1805. DOI: https://doi.org/10.1529/biophysj.106.093138.
+This module implements improved version of original thermodynamic meabolic flux
+analysis (tMFA).Christopher S. Henry, Linda J. Broadbelt, and Vassily
+Hatzimanikatis. "Thermodynamics-based metabolic flux analysis." Biophysical
+journal 92.5 (2007): 1792-1805. DOI:
+https://doi.org/10.1529/biophysj.106.093138.
 
-We present multiTFA, framework that takes advantage of the covariance matrix to tightly constrain the metabolic models using thermodynamic constraints. This implementation requires COBRA model and compartment and metabolite information as input. This framework allows user to perform various thermodynamic analyses on COBRA models including thermodynamic metabolic flux analysis, variability analysis, sampling (Please see below for further details). 
+We present multiTFA, framework that takes advantage of the covariance matrix to
+tightly constrain the metabolic models using thermodynamic constraints. This
+implementation requires COBRA model and compartment and metabolite information
+as input. This framework allows user to perform various thermodynamic analyses
+on COBRA models including thermodynamic metabolic flux analysis, variability
+analysis, sampling (Please see below for further details). 
 
 ## Installation
 
-Cloning the repository requires Git LFS to download some binary files. Git LFS can be found [here](https://git-lfs.github.com/). To install, clone the repository using
+Cloning the repository requires Git LFS to download some binary files. Git LFS
+can be found [here](https://git-lfs.github.com/). To install, clone the
+repository using
 
 ```
 git clone https://github.com/vishnumahamkali/tmfa.git
@@ -14,14 +25,18 @@ cd path/to/tmfa
 git lfs install
 git lfs pull
 ```
-Please make sure to check if binary files in `Data` folder are properly downloaded for this to work. Please note, this module is developed and tested in Python 3.6.8 and should work on Python >= 3.6.
+Please make sure to check if binary files in `Data` folder are properly
+downloaded for this to work. Please note, this module is developed and tested in
+Python 3.6.8 and should work on Python >= 3.6.
 
 To install, simply go to the `tMFA` folder and
 
 ```
  python3 setup.py install
 ```
-This module requires COBRApy and it supports all COBRA compatible solvers. It is recommended to use a commercial solver such as **GUROBI** or **CPLEX** to solve large MILP problems.
+This module requires COBRApy and it supports all COBRA compatible solvers. It is
+recommended to use a commercial solver such as **GUROBI** or **CPLEX** to solve
+large MILP problems.
 
 ## Example script
 
@@ -51,7 +66,10 @@ We solve tMFA problem for every sampled formation energy point on surface of ell
 
 ## Debugging
 
-When the model status is 'infeasible', users can find the constraints that render the model infeasible. Please note this functionality works only when using [GUROBI](https://www.gurobi.com) solver. An example of how to use this functionality is shown below.
+When the model status is 'infeasible', users can find the constraints that
+render the model infeasible. Please note this functionality works only when
+using [GUROBI](https://www.gurobi.com) solver. An example of how to use this
+functionality is shown below.
 
 ```
 while np.isnan(model.slim_optimize()):
@@ -61,4 +79,5 @@ while np.isnan(model.slim_optimize()):
             print(c)
 ```
 
-Please note there can be various combination of constraints that cause problems, users are advised to account for biological meaning when removing a constraint. 
+Please note there can be various combination of constraints that cause problems,
+users are advised to account for biological meaning when removing a constraint. 
