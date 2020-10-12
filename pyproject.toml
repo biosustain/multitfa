@@ -1,5 +1,5 @@
 [build-system]
-build_backend = 'setuptools.build_meta'
+build-backend = 'setuptools.build_meta'
 requires = [
   'setuptools>=40.6.0',
   'versioneer-518',
