@@ -1,5 +1,1 @@
-.pickle filter=lfs diff=lfs merge=lfs -text
-PICKLE filter=lfs diff=lfs merge=lfs -text
-.PICKLE filter=lfs diff=lfs merge=lfs -text
-*.pickle filter=lfs diff=lfs merge=lfs -text
-*.PICKLE filter=lfs diff=lfs merge=lfs -text
+src/tmfa/_version.py export-subst
