@@ -1,7 +1,10 @@
-from cobra import io
-from multiTFA.core import tmodel
-import numpy as np
 import time
+
+import numpy as np
+from cobra import io
+
+from multiTFA.core import tmodel
+
 
 model = io.load_matlab_model("multiTFA/model/small_ecoli.mat")
 
@@ -39,6 +42,7 @@ t_model = tmodel.tmodel(
 t_model.solver = "cplex"
 from multiTFA.analysis import variability_legacy_cplex
 
+
 vars_analysis = [rxn.id for rxn in t_model.reactions if not rxn.id.startswith("DM_")]
 
 ranges = variability_legacy_cplex(t_model, variable_list=vars_analysis)
@@ -46,4 +50,3 @@ ranges = variability_legacy_cplex(t_model, variable_list=vars_analysis)
 f = open("ranges_ecoli_cplex.txt", "w")
 for index, ele in ranges.iterrows():
     f.write("{}\t{}\t{}\n".format(index, ele["minimum"], ele["maximum"]))
-
