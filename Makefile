@@ -6,8 +6,8 @@
 
 ## Apply code quality assurance tools.
 qa:
-	isort src/tmfa tests/ setup.py
-	black src/tmfa tests/ setup.py
+	isort src/tmfa tests/ setup.py examples
+	black src/tmfa tests/ setup.py examples
 
 ## Prepare a release by generating the automatic code documentation.
 release:
