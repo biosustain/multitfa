@@ -1,20 +1,20 @@
+from copy import deepcopy
+
+import numpy as np
+from pandas import DataFrame, Series, concat
+
 from .sampling_util import (
-    generate_constraints_sample,
-    generate_ellipsoid_sample,
     compare_dataframes,
     extreme_value_distribution,
+    generate_ellipsoid_sample,
 )
 from .variability import variability
-from pandas import DataFrame, Series, concat
-import numpy as np
-from warnings import warn
-from copy import deepcopy
 
 
 def cutoff_sampling(
     model, cutoff=100, variable_list=None, min_growth=False, fraction_of_optim=0.9
 ):
-    """ Implements the quadratic constraint using repeated sampling on the surface of ellipsoid. Exits when 100 consecutive samples represent better solution. We fix the formation energy variable lb & ub to the sampled covariance and solve the problem.
+    """Implements the quadratic constraint using repeated sampling on the surface of ellipsoid. Exits when 100 consecutive samples represent better solution. We fix the formation energy variable lb & ub to the sampled covariance and solve the problem.
 
     :param model: tmodel model with constraints
     :type model: core.model

@@ -1,7 +1,10 @@
-import numpy as np
 import os
-from .posdef import nearestPD, isPD
+
+import numpy as np
+
 from ..comp_cache import comp_cache
+from .posdef import isPD, nearestPD
+
 
 data_dir = os.path.normpath(
     os.path.dirname(os.path.abspath(__file__)) + os.sep + os.pardir + os.sep + "Data"
@@ -10,11 +13,11 @@ cc_data = np.load(data_dir + os.sep + "compcont_cache.npz", allow_pickle=True)
 
 
 def preparecompoundmatrices(Compounds):
-    """ Adopts component contribution method and preprocess covariance matrices
-    
+    """Adopts component contribution method and preprocess covariance matrices
+
     Arguments:
         Compounds {core.compound} -- compound object
-    
+
     Returns:
         np.ndarrays -- X, G arrays
     """
@@ -47,12 +50,12 @@ def preparecompoundmatrices(Compounds):
 
 
 def calculate_dGf(Compounds):
-    """ Calculates the standard delG and covarinace matrix for the input compounds
-    
+    """Calculates the standard delG and covarinace matrix for the input compounds
+
     Arguments:
         Compounds {core.compound} -- list of compound objects
         Kegg_map {Dict} -- kegg identifier dictionary of compound ids
-    
+
     Returns:
         [type] -- [description]
     """
@@ -70,15 +73,15 @@ def calculate_dGf(Compounds):
 
 
 def cholesky_decomposition(dg, cov_dg):
-    """ Cholesky decomposition of the covarinace matrix. Uses numpy linalg function. First deletes 
-    the compound rows whose dG =0 or whole row of covariance is zero and calculate cholesky and reinsert the 
+    """Cholesky decomposition of the covarinace matrix. Uses numpy linalg function. First deletes
+    the compound rows whose dG =0 or whole row of covariance is zero and calculate cholesky and reinsert the
     deleted rows. While calculating cholesky, if the covariance is not positive definite, we find the nearest
     positive definite matrix using the algorithm defined in the file.
-    
+
     Arguments:
         dg {np.ndarray} -- delG of the compounds
         cov_dg {np.ndarray} -- covariance matrix
-    
+
     Returns:
         [np.ndarray] -- cholesky matrix
     """

@@ -1,26 +1,33 @@
+from copy import copy
+
 from cobra import Metabolite
-import numpy as np
-from ..util.thermo_constants import *
-from six import iteritems
-from copy import copy, deepcopy
-import time
 from equilibrator_api import Q_
+from six import iteritems
+
+from ..util.thermo_constants import *
 
 
 class Thermo_met(Metabolite):
-    """ Class representation of thermodynamic metabolite object. It takes cobra Metabolite object as input and creates the Thermo_met object. Object is populated with properties required for thermodynamic calculations. We use equilibrator-api to do the Gibbs energy calculations.
-    
+    """
+    Class representation of thermodynamic metabolite object.
+
+    It takes cobra Metabolite object as input and creates the Thermo_met object. Object
+    is populated with properties required for thermodynamic calculations. We use
+    equilibrator-api to do the Gibbs energy calculations.
+
     Parameters
-        ----------
-        metabolite : cobra.core.Metabolite
-            cobra metabolite object
-        updated_model : cobra.core.Model, optional
-            cobra model, by default None
-    
+    ----------
+    metabolite : cobra.core.Metabolite
+        cobra metabolite object
+    updated_model : cobra.core.Model, optional
+        cobra model, by default None
+
     """
 
     def __init__(
-        self, metabolite, updated_model=None,
+        self,
+        metabolite,
+        updated_model=None,
     ):
         self._model = updated_model
         self._reaction = set()
@@ -133,7 +140,7 @@ class Thermo_met(Metabolite):
         """External database identifier to match and retrieve thermodynamic properties from equilibrator-api. Will accept any identifier that equilibrator uses. Please refer to equilibrator-api documentation. Should use their corresponding format.
 
         for example for atp
-        E.g: 
+        E.g:
         if bigg databse id: bigg.metabolite:atp
             Kegg: kegg:C00002
 
@@ -151,7 +158,7 @@ class Thermo_met(Metabolite):
 
     @property
     def delG_err_variable(self):
-        """optlang variable to represent the error on the formation energy of metabolite. Allowed to vary between 2 S.D from mean. 
+        """optlang variable to represent the error on the formation energy of metabolite. Allowed to vary between 2 S.D from mean.
 
         Returns
         -------
@@ -200,7 +207,7 @@ class Thermo_met(Metabolite):
 
     @property
     def std_dev(self):
-        """standard deviation of compound Gibbs formation energy. 
+        """standard deviation of compound Gibbs formation energy.
 
         Returns
         -------
@@ -270,9 +277,9 @@ class Thermo_met(Metabolite):
         try:
             return self._equilibrator_accession
         except AttributeError:
-            self._equilibrator_accession = self.model.metabolite_equilibrator_accessions[
-                self.id
-            ]
+            self._equilibrator_accession = (
+                self.model.metabolite_equilibrator_accessions[self.id]
+            )
             return self._equilibrator_accession
 
     @property
@@ -294,19 +301,27 @@ class Thermo_met(Metabolite):
 
     def abundant_ms(self, pH, I, temperature, pMg):
         ddg_over_rts = [
-            (ms.transform(pH=pH, ionic_strength=I, T_in_K=temperature, pMg=pMg,), ms,)
+            (
+                ms.transform(
+                    pH=pH,
+                    ionic_strength=I,
+                    T_in_K=temperature,
+                    pMg=pMg,
+                ),
+                ms,
+            )
             for ms in self.equilibrator_accession.microspecies
         ]
         min_ddg, min_ms = min(ddg_over_rts, key=lambda x: x[0])
         return min_ms
 
     def get_compound_vector(self):
-        """ This is the implementation of compound vector from component contribution. Checks if the compound is covered by group contribution, reactant contribution or neither
+        """This is the implementation of compound vector from component contribution. Checks if the compound is covered by group contribution, reactant contribution or neither
 
         Returns:
             comp_vector  np.array or None
                         Compound vector with index of the compound in training data (component contribution) or None
-            
+
         """
         if self.equilibrator_accession:
             try:
@@ -331,8 +346,8 @@ class Thermo_met(Metabolite):
             return comp_vector[np.newaxis, :]
 
     def calculate_delG_f(self):
-        """ Calculates the standard transformed Gibbs formation energy of compound using component contribution method. pH, Ionic strength values are taken from model's compartment_info attribute
-        
+        """Calculates the standard transformed Gibbs formation energy of compound using component contribution method. pH, Ionic strength values are taken from model's compartment_info attribute
+
         Returns:
             float -- Transformed Gibbs energy of formation adjusted to pH, ionic strength of metabolite
         """
@@ -349,4 +364,3 @@ class Thermo_met(Metabolite):
             return std_dG_f[0] + transform.to_base_units().magnitude * 1e-3
         else:
             return std_dG_f[0]
-

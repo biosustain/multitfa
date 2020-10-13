@@ -1,34 +1,22 @@
-from .reaction import thermo_reaction
-import numpy as np
-from ..util.thermo_constants import *
-from ..util.constraints import (
-    directionality,
-    delG_indicator,
-    concentration_exp,
-    formation_exp,
-    bounds_ellipsoid,
-    quad_constraint,
-    delG_constraint_expression,
-)
-from copy import deepcopy, copy
-from ..util.posdef import isPD, nearestPD
-from ..util.linalg_fun import *
-from ..util.util_func import Exclude_quadratic, correlated_pairs, quadratic_matrices
-from .compound import Thermo_met
-from warnings import warn
-from six import iteritems
-from cobra import Model
-from .solution import get_solution, get_legacy_solution
-from cobra.core.dictlist import DictList
-import optlang
-import itertools
-import os
-from random import choices
-import string
-from scipy import stats, linalg
 import pickle
+import string
 import tempfile
-from equilibrator_api import ComponentContribution, Q_
+from copy import copy, deepcopy
+from random import choices
+
+import optlang
+from cobra import Model
+from cobra.core.dictlist import DictList
+from equilibrator_api import ComponentContribution
+from six import iteritems
+
+from ..util.constraints import delG_indicator, directionality
+from ..util.linalg_fun import *
+from ..util.thermo_constants import *
+from .compound import Thermo_met
+from .reaction import thermo_reaction
+from .solution import get_legacy_solution, get_solution
+
 
 api = ComponentContribution()
 
@@ -36,6 +24,7 @@ api = ComponentContribution()
 cwd = os.getcwd()
 
 import logging
+
 
 logs_dir = cwd + os.sep + "logs"
 if not os.path.exists(logs_dir):
@@ -59,23 +48,23 @@ cache_file = os.path.normpath(
 
 
 class tmodel(Model):
-    """tmodel is Class representation of thermodynamic metabolic flux analysis model. This class adds attributes and methods required for thermodynamic analysis of a COBRA model. 
+    """tmodel is Class representation of thermodynamic metabolic flux analysis model. This class adds attributes and methods required for thermodynamic analysis of a COBRA model.
 
-        Parameters
-        ----------
-        Model : cobra.core.model
-            A Cobra model class
-        model : instance of cobra.core.model
-            tmodel requires a cobra model instance as input. Thermodynamic properties are added based on the stoichiometry of the underlying Cobra model
-        Exclude_list : list, optional
-            List of reactions user wants to exclude from thermodynamic analysis, For example, Exchange/Demand reactions,  by default []
-        tolerance_integral : float, optional
-            integrality tolerance of for the model , by default 1e-9
-        compartment_info : pd.Dataframe, optional
-            a pandas Dataframe containing the compartment information like pH, ionic strength, magnesium concentration etc. Row indices should be the compartment symbol and column indices should be property, by default None
-        membrane_potential : pd.Dataframe, optional
-            a pandas Dataframe containing membrane electrostatic potential information to calculate the delG of muli compartment transport. Values are read in a sequence that column represent the first compartment and row represent the compartment being transported to. Row & column indices should be the compartment symbols , by default None
-        """
+    Parameters
+    ----------
+    Model : cobra.core.model
+        A Cobra model class
+    model : instance of cobra.core.model
+        tmodel requires a cobra model instance as input. Thermodynamic properties are added based on the stoichiometry of the underlying Cobra model
+    Exclude_list : list, optional
+        List of reactions user wants to exclude from thermodynamic analysis, For example, Exchange/Demand reactions,  by default []
+    tolerance_integral : float, optional
+        integrality tolerance of for the model , by default 1e-9
+    compartment_info : pd.Dataframe, optional
+        a pandas Dataframe containing the compartment information like pH, ionic strength, magnesium concentration etc. Row indices should be the compartment symbol and column indices should be property, by default None
+    membrane_potential : pd.Dataframe, optional
+        a pandas Dataframe containing membrane electrostatic potential information to calculate the delG of muli compartment transport. Values are read in a sequence that column represent the first compartment and row represent the compartment being transported to. Row & column indices should be the compartment symbols , by default None
+    """
 
     def __init__(
         self,
@@ -103,7 +92,10 @@ class tmodel(Model):
         self.metabolites = DictList()
         do_not_copy_by_ref = {"_reaction", "_model"}
         for metabolite in model.metabolites:
-            new_met = Thermo_met(metabolite=metabolite, updated_model=self,)
+            new_met = Thermo_met(
+                metabolite=metabolite,
+                updated_model=self,
+            )
             self.metabolites.append(new_met)
 
         self.genes = DictList()
@@ -120,7 +112,10 @@ class tmodel(Model):
         self.reactions = DictList()
         do_not_copy_by_ref = {"_model", "_metabolites", "_genes"}
         for reaction in model.reactions:
-            new_reaction = thermo_reaction(cobra_rxn=reaction, updated_model=self,)
+            new_reaction = thermo_reaction(
+                cobra_rxn=reaction,
+                updated_model=self,
+            )
             self.reactions.append(new_reaction)
 
         try:
@@ -135,7 +130,7 @@ class tmodel(Model):
 
     @property
     def gurobi_interface(self):
-        """multiTFA at the moment supports two solvers Gurobi/Cplex for solving quadratic constraint problems. Optlang doesn't support adding QC, so we chose to add two separate solver interafaces to tmodel. This is gurobi solver interface. In addition to the linear constraints, this interface contain one extra constraint to represent sphere 
+        """multiTFA at the moment supports two solvers Gurobi/Cplex for solving quadratic constraint problems. Optlang doesn't support adding QC, so we chose to add two separate solver interafaces to tmodel. This is gurobi solver interface. In addition to the linear constraints, this interface contain one extra constraint to represent sphere
 
         Returns
         -------
@@ -152,7 +147,7 @@ class tmodel(Model):
 
     @property
     def cplex_interface(self):
-        """ Cplex interface to support QC
+        """Cplex interface to support QC
 
         Returns
         -------
@@ -168,8 +163,8 @@ class tmodel(Model):
 
     @property
     def problem_metabolites(self):
-        """ Metabolites for which we can't calculate the Gibbs free energy of formation using component contribution method. If the metabolite is not covered by reactant/group contribution method, then we have to write the metabolite and corresponding reactions from tMFA analysis or have to lump the reactions.
-        
+        """Metabolites for which we can't calculate the Gibbs free energy of formation using component contribution method. If the metabolite is not covered by reactant/group contribution method, then we have to write the metabolite and corresponding reactions from tMFA analysis or have to lump the reactions.
+
         Returns:
             List
                 List of metabolite not covered by component contribution
@@ -293,10 +288,10 @@ class tmodel(Model):
         return (rxn_var_name, stoichiometry_core)
 
     def update_thermo_variables(self):
-        """ Generates reaction and metabolite variables required for thermodynamic analysis and adds to the model. We use two different methods to solve the tMFA problem. Traditional 'box' method employs MILP problem where components are allowed to vary between some s.d from mean. The other method uses MIQCP structure to use covariance matrix to capture covariance. Two methods share some common variables, where as MIQCP method requires independent variables to sample from original solution space.
+        """Generates reaction and metabolite variables required for thermodynamic analysis and adds to the model. We use two different methods to solve the tMFA problem. Traditional 'box' method employs MILP problem where components are allowed to vary between some s.d from mean. The other method uses MIQCP structure to use covariance matrix to capture covariance. Two methods share some common variables, where as MIQCP method requires independent variables to sample from original solution space.
 
         Common Variables: delG_reaction, indicator_reaction, concentration_metabolite
-        MILP variables: metabolite error 
+        MILP variables: metabolite error
         MIQCP variables: independent component variables
 
         """
@@ -355,13 +350,13 @@ class tmodel(Model):
         self._var_update = True
 
     def _generate_constraints(self):
-        """ Generates thermodynamic constraints for the model. See util/constraints.py for detailed explanation of constraints
+        """Generates thermodynamic constraints for the model. See util/constraints.py for detailed explanation of constraints
 
         Vi - Vmax * Zi <= 0
         delGr - K + K * Zi <= 0
         delGr - RT * S.T * ln(x) - S.T @ delGf - delGtransport = 0
 
-        
+
         Returns:
             List -- List of themrodynamic constraints
         """
@@ -421,8 +416,7 @@ class tmodel(Model):
         return rxn_constraints
 
     def update(self):
-        """ Adds the generated thermo constaints to  model. Checks for duplication 
-        """
+        """ Adds the generated thermo constaints to  model. Checks for duplication"""
         thermo_constraints = self._generate_constraints()
 
         for cons in thermo_constraints:
@@ -439,9 +433,9 @@ class tmodel(Model):
                 self.add_cons_vars([cons])
 
     def optimize(self, solve_method="QC", raise_error=False):
-        """ solves the model with given constraints. By default, we try to solve the model with quadratic constraints. Note: Quadratic constraints are supported by Gurobi/Cplex currently. if either of two solvers are not found, one can solve 'box' type MILP problem.
+        """solves the model with given constraints. By default, we try to solve the model with quadratic constraints. Note: Quadratic constraints are supported by Gurobi/Cplex currently. if either of two solvers are not found, one can solve 'box' type MILP problem.
 
-        :param solve_method: Method to solve the problem, defaults to "MIQC", any other string input leades to solving with box MILP  
+        :param solve_method: Method to solve the problem, defaults to "MIQC", any other string input leades to solving with box MILP
         :type solve_method: str, optional
         :param raise_error: , defaults to False
         :type raise_error: bool, optional
@@ -485,10 +479,10 @@ class tmodel(Model):
             raise ValueError("Solver not understood")
 
     def Quadratic_constraint(self):
-        """ Adds Quadratic constraint to the model's Gurobi/Cplex Interface. 
+        """Adds Quadratic constraint to the model's Gurobi/Cplex Interface.
         (x-mu).T @ inv(cov) @ (x-mu) <= chi-square
         Note: This one creates one ellipsoidal constraint for all the metabolites that has non zero or non 'nan' formation energy, irrespective of the magnitude of variance. if the model is infeasible after adding this constraint, refer to util_func.py, find_correlated metabolites to add different ellipsoidal constraints to high variance and normal compounds to avoid possible numerical issues.
-        
+
         Unable to retrieve quadratic constraints in Gurobi model, can see the QC when printed.
 
         :raises NotImplementedError: Implemented only for Gurobi/Cplex interfaces.
@@ -521,7 +515,7 @@ class tmodel(Model):
                 :, low_variance_indices
             ][low_variance_indices, :]
             cholesky_small_variance = matrix_decomposition(small_component_covariance)
-            chi2_value_small = stat.chi2.isf(
+            chi2_value_small = stats.chi2.isf(
                 q=0.05, df=cholesky_small_variance.shape[1]
             )  # Chi-square value to map confidence interval
 
@@ -543,7 +537,8 @@ class tmodel(Model):
             ]  # Covariance matrix for the high variance components
 
             cholesky_large_variance = matrix_decomposition(large_component_covariance)
-            chi2_value_high = stat.chi2.isf(q=0.05, df=cholesky_large_variance.shape[1])
+            chi2_value_high = stats.chi2.isf(q=0.05,
+                                             df=cholesky_large_variance.shape[1])
 
             # Insert empty rows for the low_variance_components
             for i in low_variance_indices:
@@ -564,7 +559,7 @@ class tmodel(Model):
 
         if self.solver.__class__.__module__ == "optlang.cplex_interface":
 
-            from cplex import Cplex, SparseTriple, SparsePair
+            from cplex import Cplex, SparsePair, SparseTriple
 
             # Instantiate Cplex model
             cplex_model = Cplex()
@@ -733,7 +728,7 @@ class tmodel(Model):
             return cplex_model
 
         elif self.solver.__class__.__module__ == "optlang.gurobi_interface":
-            from gurobipy import LinExpr, GRB
+            from gurobipy import GRB, LinExpr
 
             gurobi_model = self.solver.problem.copy()
 
@@ -883,7 +878,7 @@ class tmodel(Model):
             logging.error("Current solver doesnt support problesm of type MIQC")
 
     def calculate_S_matrix(self):
-        """ Calculates the stoichiometric matrix (metabolites * Reactions)
+        """Calculates the stoichiometric matrix (metabolites * Reactions)
 
         Returns:
             Tuple  -- Tuple of reaction order, np.ndarray of stoichiometric matrix
@@ -910,8 +905,8 @@ class tmodel(Model):
         return rxn_order, S
 
     def concentration_ratio_constraints(self, ratio_metabolites, ratio_lb, ratio_ub):
-        """ Function to add metabolite concentration ratio constraints to the model. E.g. ratio of redox pairs
-        
+        """Function to add metabolite concentration ratio constraints to the model. E.g. ratio of redox pairs
+
         Arguments:
             ratio_metabolites {Tuple} -- Tuple of metabolite names to which we have concentration ratios in the same order
 
@@ -934,9 +929,9 @@ class tmodel(Model):
             self.add_cons_vars(ratio_constraint)
 
     def cal_problematic_rxns(self):
-        """ Reactions which can't be included in thermodynamic analysis
+        """Reactions which can't be included in thermodynamic analysis
             reactions involving problematic metabolites
-        
+
         Returns:
             List -- List of reactions excluded, this combined with 'Exclude_list' gives us 'Exclude_reactions'
         """
@@ -954,7 +949,7 @@ class tmodel(Model):
             return []
 
     def export_MIP_matrix(self):
-        """ Creates matrices structure of the MILP problem. Quadratic constraint is not exported.
+        """Creates matrices structure of the MILP problem. Quadratic constraint is not exported.
 
         :return: lhs- lhs matrix representing all constraints
                 rhs - rhs matrix
@@ -1055,4 +1050,3 @@ class tmodel(Model):
         )
 
         return (lhs, rhs, var_names, np.array(lb), np.array(ub), cons_sense)
-

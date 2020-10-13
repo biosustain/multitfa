@@ -1,10 +1,8 @@
-from six import iteritems
-import numpy as np
-from .thermo_constants import *
-from scipy.stats import chi2
 from scipy import linalg
-from .posdef import nearestPD, isPD
-from .util_func import findcorrelatedmets
+from scipy.stats import chi2
+from six import iteritems
+
+from .thermo_constants import *
 
 
 """ This is a supplementary script to create all thermodynamic variables and constraints to add to the model.
@@ -13,10 +11,10 @@ from .util_func import findcorrelatedmets
 
 def reaction_variables(reaction):
     """Creates the reaction DelG variables (model.problem.Variable), No need to import optlang
-    
+
     Arguments:
         reaction {model.reaction} -- reaction object
-    
+
     Returns:
         [List] -- List of delG and indicator for forward and reverse reaction objects
     """
@@ -45,11 +43,11 @@ def reaction_variables(reaction):
 
 
 def metabolite_variables(metabolite):
-    """ Metabolite concentration and formation energy variables. formation energy is varied between mean +/- 2 S.D for box type constraints or calculated separately otherwise based on eigen values and vectors.
-    
+    """Metabolite concentration and formation energy variables. formation energy is varied between mean +/- 2 S.D for box type constraints or calculated separately otherwise based on eigen values and vectors.
+
     Arguments:
         metabolite {model.metabolite} -- core.thermo_met object
-    
+
     Returns:
         [tuple] -- Tuple of concentration variable and formation energy variable
     """
@@ -76,12 +74,12 @@ def metabolite_variables(metabolite):
 
 
 def directionality(reaction):
-    """ Reaction directionality constraint
+    """Reaction directionality constraint
     Vi - Vmax * Zi <= 0
-    
+
     Arguments:
         reaction {core.reaction} -- reaction object
-    
+
     Returns:
         [tuple] -- tuple of direactionality constraints
     """
@@ -104,11 +102,11 @@ def directionality(reaction):
 
 
 def delG_indicator(reaction):
-    """ Indicator constraints to ensure delG < 0 always
-    delG -K + K*Zi <= 0 
+    """Indicator constraints to ensure delG < 0 always
+    delG -K + K*Zi <= 0
     Arguments:
         reaction {core.reaction} -- reaction object
-    
+
     Returns:
         [tuple] -- tuple of indicator constraints
     """
@@ -132,12 +130,12 @@ def delG_indicator(reaction):
 
 
 def concentration_exp(reaction):
-    """ Concentration term for the delG constraint
+    """Concentration term for the delG constraint
     S.T @ ln(X) implemented as sum(stoic * met.conc_var for all mets in reaction)
-    
+
     Arguments:
         reaction {core.reaction} -- reaction object
-    
+
     Returns:
         [symbolic exp] -- Concentration expression
     """
@@ -186,7 +184,7 @@ def formation_exp(reaction, component_variables):
 
 
 def quad_constraint(covar, mets, met_var_dict):
-    """ generates lhs and rhs for qudratic constraints for the metabolites
+    """generates lhs and rhs for qudratic constraints for the metabolites
 
     Arguments:
         covar {[type]} -- [description]
@@ -212,7 +210,7 @@ def quad_constraint(covar, mets, met_var_dict):
 
 
 def bounds_ellipsoid(covariance):
-    """ Calculates the bounds of formation energy variables from the covariance matrix. It will help the solver to get to the solution space quick, for the quadratic constraint problem. 
+    """Calculates the bounds of formation energy variables from the covariance matrix. It will help the solver to get to the solution space quick, for the quadratic constraint problem.
 
     Half length of ellipse axis is sqrt(eigen_val * chisquare_val). We calculate unit eigen vectors and multiply my corresponding half length. reconstruct the matrix and pick the largest value of each row, that should define the upper bound for the metabolite formation energy.
 
@@ -241,4 +239,3 @@ def bounds_ellipsoid(covariance):
         UB.append(max(bounds_mat[i, :]))
 
     return UB
-

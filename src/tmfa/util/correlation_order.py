@@ -1,5 +1,6 @@
+from collections import Counter, OrderedDict
+
 import numpy as np
-from collections import OrderedDict, Counter
 
 
 def rxn_order_corr(rxn_correlation):

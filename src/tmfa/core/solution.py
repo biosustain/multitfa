@@ -1,5 +1,5 @@
 from numpy import empty, nan
-from pandas import DataFrame, Series, option_context
+from pandas import DataFrame, Series
 
 
 class Solution:

@@ -1,32 +1,31 @@
-from cobra import Reaction
-from cobra.core.dictlist import DictList
-from six import iteritems
-from numpy import zeros, dot
-from .compound import Thermo_met
-from ..util.thermo_constants import FARADAY
-from copy import deepcopy
-from ..util.thermo_constants import K, Vmax, RT, default_T
-from copy import copy, deepcopy
+from copy import copy
+
 import numpy as np
+from cobra import Reaction
+from numpy import zeros
+from six import iteritems
+
+from ..util.thermo_constants import FARADAY
 
 
 class thermo_reaction(Reaction):
+    """
+    Class representation of thermo reaction Object. We calculate the required thermodynamic constraints for performing tMFA. To do the constraints, we need Gibbs energy of reaction and transport.
 
-    """ Class representation of thermo reaction Object. We calculate the required thermodynamic constraints for performing tMFA. To do the constraints, we need Gibbs energy of reaction and transport.
+    Parameters
+    ----------
+    cobra_rxn : cobra.core.Reaction
+        Cobra reaction object, to copy the attributes from. We copy metabolites and genes.
+    updated_model : core.tmodel, optional
+        tmodel object, with updated thermo properties, by default None
 
-        Parameters
-        ----------
-        cobra_rxn : cobra.core.Reaction
-            Cobra reaction object, to copy the attributes from. We copy metabolites and genes.
-        updated_model : core.tmodel, optional
-            tmodel object, with updated thermo properties, by default None
-    
     """
 
     def __init__(
-        self, cobra_rxn, updated_model=None,
+        self,
+        cobra_rxn,
+        updated_model=None,
     ):
-
         self._model = updated_model
         do_not_copy_by_ref = {"_model", "_metabolites", "_genes"}
         for attr, value in iteritems(cobra_rxn.__dict__):
@@ -46,7 +45,7 @@ class thermo_reaction(Reaction):
 
     @property
     def delG_forward(self):
-        """ An optlang variable representing the Gibbs energy of the forward reaction. 
+        """ An optlang variable representing the Gibbs energy of the forward reaction.
 
         Returns
         -------
@@ -124,7 +123,7 @@ class thermo_reaction(Reaction):
 
         Returns
         -------
-        tuple 
+        tuple
             tuple of optlang.interface.constraint of forward and reverse reaction directionalities. if the reaction is not associated with model or reaction present in list of thermodynamic excluded reactions, then None
         """
         forward_cons = "directionality_{}".format(self.forward_variable.name)
@@ -143,7 +142,7 @@ class thermo_reaction(Reaction):
 
     @property
     def indicator_constraint(self):
-        """optlang constraint to ensure that reaction Gibbs energy is always < 0. 
+        """optlang constraint to ensure that reaction Gibbs energy is always < 0.
 
         delG -K + K*Zi <= 0
 
@@ -214,7 +213,7 @@ class thermo_reaction(Reaction):
 
     @property
     def delG_transport(self):
-        """Gibbs energy of transport of the reaction. 
+        """Gibbs energy of transport of the reaction.
 
         Returns
         -------
@@ -237,7 +236,7 @@ class thermo_reaction(Reaction):
         Returns
         -------
         tuple
-            tuple of two dictionaries. Dictionaries of transport charge and protons for each compartment. 
+            tuple of two dictionaries. Dictionaries of transport charge and protons for each compartment.
         """
         n_charge = {}
         n_proton = {}
@@ -324,4 +323,3 @@ class thermo_reaction(Reaction):
             rxn_delG += stoic * float(metabolite.delG_f)
 
         return rxn_delG
-

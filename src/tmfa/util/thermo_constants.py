@@ -1,8 +1,8 @@
-import numpy as np
-import scipy as sp
 import os
+
+import numpy as np
 from component_contribution import CCModelParameters
-import scipy.stats as stat
+
 
 PROTON_INCHI_KEY = "GPRLSGONYQIRFK-UHFFFAOYSA-N"
 

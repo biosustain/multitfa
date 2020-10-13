@@ -1,9 +1,9 @@
-from scipy.stats import chi2, genextreme
 import numpy as np
-from ..util.constraints import *
 from optlang import Constraint
+from scipy.stats import genextreme
+
+from ..util.constraints import *
 from ..util.thermo_constants import RT
-from random import uniform
 
 
 def generate_n_sphere_sample(n_variables):
@@ -44,10 +44,10 @@ def generate_ellipsoid_sample(cholesky):
 
 def generate_constraints_sample(model):
     """[summary]
-    
+
     Arguments:
         model {[type]} -- [description]
-    
+
     Returns:
         [type] -- [description]
     """
@@ -125,12 +125,12 @@ def compare_dataframes(df1, df2):
 
 
 def extreme_value_distribution(data_set):
-    """ Fits the Gibbs free energy data to the Generalized extreme value distribution and predicts the extreme value at 95 % CI.
+    """Fits the Gibbs free energy data to the Generalized extreme value distribution and predicts the extreme value at 95 % CI.
     Uses Scipy genextreme function
-    
+
     Arguments:
         data_set [list] -- The max or min range of Gibbs free energy values
-    
+
     Returns:
         tuple -- min or max value predicted from GEV at 95% confidence
     """
@@ -138,4 +138,3 @@ def extreme_value_distribution(data_set):
     min_extreme, max_extreme = genextreme.interval(0.95, c, loc, scale)
 
     return min_extreme, max_extreme
-

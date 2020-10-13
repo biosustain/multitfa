@@ -1,12 +1,17 @@
+from copy import copy
+
 import numpy as np
-from pandas import DataFrame, Series, option_context
-from copy import deepcopy, copy
+from pandas import DataFrame, Series
 
 
 def variability(
     model_variability, variable_list=None, min_growth=False, fraction_of_optim=0.9
 ):
-    """Performs thermodynamic variability analysis on t_model. Determines the minimum and maximum values for the input variables (Flux, Gibbs free energies and metabolite concentrations). if min_growth constraint is applied then growth is maintained at given percentage of optimum. 
+    """Perform thermodynamic variability analysis.
+
+    Determine the minimum and maximum values for the input variables (Flux, Gibbs free
+    energies and metabolite concentrations). if min_growth constraint is applied then
+    growth is maintained at given percentage of optimum.
 
     :param model: thermodynamic model
     :type model: core.model
@@ -19,6 +24,7 @@ def variability(
     :raises ValueError: [description]
     :return: minimum and max of variables
     :rtype: pd.Dataframe
+
     """
 
     model = copy(model_variability)
@@ -193,9 +199,9 @@ def variability_legacy_gurobi(
 
 
 import os
-from random import choices
 import string
 import tempfile
+from random import choices
 
 
 def variability_legacy_cplex(

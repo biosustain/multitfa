@@ -1,14 +1,13 @@
 import numpy as np
-from .posdef import isPD, nearestPD
-from collections import OrderedDict
-from six import iteritems
-from .thermo_constants import RT
 from scipy import linalg
+from six import iteritems
+
+from .thermo_constants import RT
 
 
 def cov2corr(covariance):
-    """ Calculates correlation matrix from covariance matrix
-    corr(i,j) = cov(i,j)/stdev(i) * stdev(j) 
+    """Calculates correlation matrix from covariance matrix
+    corr(i,j) = cov(i,j)/stdev(i) * stdev(j)
 
     Arguments:
         covariance {np.ndarray} -- covariance matrix
@@ -203,4 +202,3 @@ def quadratic_matrices(covariance, metabolites):
         val.extend(list(inv_covar[:, i]))
 
     return (ind1, ind2, val)
-

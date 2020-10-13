@@ -1,5 +1,5 @@
-from scipy import linalg
 import numpy as np
+from scipy import linalg
 
 
 def matrix_decomposition(square_matrix):
