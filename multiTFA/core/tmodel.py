@@ -369,8 +369,7 @@ class tmodel(Model):
         if not self._var_update:
             self.update_thermo_variables()
 
-        rxn_common_constraints = []
-        delG_constraint_box = []
+        rxn_constraints = []
         # Now add reaction variables and generate remaining constraints
         for rxn in self.reactions:
             if rxn.id in self.Exclude_reactions:
@@ -383,7 +382,7 @@ class tmodel(Model):
             dir_f, dir_r = directionality(rxn)
             ind_f, ind_r = delG_indicator(rxn)
 
-            rxn_common_constraints.extend([dir_f, dir_r, ind_f, ind_r])
+            rxn_constraints.extend([dir_f, dir_r, ind_f, ind_r])
 
             # Create two different constraints for box method and MIQC method
 
@@ -417,32 +416,16 @@ class tmodel(Model):
                 ub=-rhs,
                 name="delG_{}".format(rxn.reverse_variable.name),
             )
-            delG_constraint_box.extend([delG_f, delG_r])
+            rxn_constraints.extend([delG_f, delG_r])
 
-        return (
-            rxn_common_constraints,
-            delG_constraint_box,
-        )
+        return rxn_constraints
 
     def update(self):
         """ Adds the generated thermo constaints to  model. Checks for duplication 
         """
-        common_constraints, delG_box_constraints = self._generate_constraints()
+        thermo_constraints = self._generate_constraints()
 
-        for cons in common_constraints:
-            if cons.name not in self.constraints:
-                self.add_cons_vars([cons])
-                logging.debug("Constraint {} added to the model".format(cons.name))
-            else:
-                logging.warning(
-                    "Constraint {} already in the model, removing previous entry".format(
-                        cons.name
-                    )
-                )
-                self.solver.remove(cons.name)
-                self.add_cons_vars([cons])
-
-        for cons in delG_box_constraints:
+        for cons in thermo_constraints:
             if cons.name not in self.constraints:
                 self.add_cons_vars([cons])
                 logging.debug("Constraint {} added to the model".format(cons.name))
