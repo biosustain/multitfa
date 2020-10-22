@@ -188,15 +188,6 @@ class Thermo_met(Metabolite):
             return False
 
     @property
-    def sphere_var_expression(self):
-        return (
-            np.sqrt(chi2_value)
-            * self.compound_vector
-            @ cholesky
-            @ self.model.sphere_variables
-        )
-
-    @property
     def equilibrator_accession(self):
         try:
             return self._equilibrator_accession
