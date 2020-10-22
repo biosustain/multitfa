@@ -3,7 +3,9 @@ from pandas import DataFrame, Series, option_context
 from copy import deepcopy, copy
 
 
-def variability(model, variable_list=None, min_growth=False, fraction_of_optim=0.9):
+def variability(
+    model_variability, variable_list=None, min_growth=False, fraction_of_optim=0.9
+):
     """Performs thermodynamic variability analysis on t_model. Determines the minimum and maximum values for the input variables (Flux, Gibbs free energies and metabolite concentrations). if min_growth constraint is applied then growth is maintained at given percentage of optimum. 
 
     :param model: thermodynamic model
@@ -19,6 +21,7 @@ def variability(model, variable_list=None, min_growth=False, fraction_of_optim=0
     :rtype: pd.Dataframe
     """
 
+    model = copy(model_variability)
     if variable_list == None:
         variables = [var.name for var in model.solver.variables]
     else:
