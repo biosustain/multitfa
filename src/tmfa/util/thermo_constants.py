@@ -1,17 +1,15 @@
-import os
+from pathlib import Path
 
 import numpy as np
 from component_contribution import CCModelParameters
 
 
 PROTON_INCHI_KEY = "GPRLSGONYQIRFK-UHFFFAOYSA-N"
+DATA_DIR = Path(__file__).parent.parent / "data"
 
-data_dir = os.path.normpath(
-    (os.path.dirname(os.path.abspath(__file__))) + os.sep + os.pardir + os.sep + "Data"
-)
 
-# covar_data = np.load(data_dir + os.sep + "covariance.npz")
-covar_data = np.load(data_dir + os.sep + "component_data.npz")
+# covar_data = np.load(DATA_DIR / "covariance.npz")
+covar_data = np.load(DATA_DIR / "component_data.npz")
 
 covariance = covar_data["covariance"]
 # cholesky_small = covar_data["cholesky_low"]

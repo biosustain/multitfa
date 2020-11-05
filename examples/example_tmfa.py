@@ -1,19 +1,14 @@
-import time
-
-import numpy as np
 from cobra import io
+from tmfa.core import tmodel
 
-from multiTFA.core import tmodel
+model = io.load_matlab_model("small_ecoli.mat")
 
-
-model = io.load_matlab_model("multiTFA/model/small_ecoli.mat")
-
-Kegg_map = {}
-with open("multiTFA/model/ecoli_kegg_map.txt", "r") as f:
+kegg_map = {}
+with open("ecoli_kegg_map.txt", "r") as f:
     for line in f:
         line = line.strip()
         line = line.split("\t")
-        Kegg_map[line[0]] = line[1]
+        kegg_map[line[0]] = line[1]
 
 pH_I_T_dict = {
     "pH": {"c": 7.5, "e": 7, "p": 7},
@@ -31,22 +26,22 @@ conc_dict = {
     "max": {"atp_c": 1e-2, "adp_c": 7e-4, "amp_c": 3e-4},
 }
 
-t_model = tmodel.tmodel(
+tfa_model = tmodel(
     model=model,
-    Kegg_map=Kegg_map,
+    Kegg_map=kegg_map,
     pH_I_dict=pH_I_T_dict,
     del_psi_dict=del_psi_dict,
     Exclude_list=Excl,
     concentration_dict=conc_dict,
 )
-t_model.solver = "cplex"
-from multiTFA.analysis import variability_legacy_cplex
+tfa_model.solver = "cplex"
+from tmfa.analysis import variability_legacy_cplex
 
+vars_analysis = [rxn.id for rxn in tfa_model.reactions if not rxn.id.startswith("DM_")]
 
-vars_analysis = [rxn.id for rxn in t_model.reactions if not rxn.id.startswith("DM_")]
-
-ranges = variability_legacy_cplex(t_model, variable_list=vars_analysis)
+ranges = variability_legacy_cplex(tfa_model, variable_list=vars_analysis)
 
 f = open("ranges_ecoli_cplex.txt", "w")
 for index, ele in ranges.iterrows():
     f.write("{}\t{}\t{}\n".format(index, ele["minimum"], ele["maximum"]))
+
