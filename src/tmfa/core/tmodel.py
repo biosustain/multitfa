@@ -8,6 +8,7 @@ import optlang
 from cobra import Model
 from cobra.core.dictlist import DictList
 from equilibrator_api import ComponentContribution
+from scipy import stats
 from six import iteritems
 
 from ..util.constraints import delG_indicator, directionality
