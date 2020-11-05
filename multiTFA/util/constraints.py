@@ -1,6 +1,6 @@
 from six import iteritems
 import numpy as np
-from .thermo_constants import Vmax, RT, K
+from .thermo_constants import *
 from scipy.stats import chi2
 from scipy import linalg
 from .posdef import nearestPD, isPD
@@ -144,37 +144,45 @@ def concentration_exp(reaction):
     conc_exp = sum(
         stoic * metabolite.concentration_variable
         for metabolite, stoic in iteritems(reaction.metabolites)
-        if metabolite.Kegg_id not in ["C00080", "cpd00067"]
+        if metabolite.equilibrator_accession.inchi_key != PROTON_INCHI_KEY
     )
     return conc_exp
 
 
-def formation_exp(reaction):
+def delG_constraint_expression(reaction):
+    """[summary]
 
-    return sum(
-        stoic * metabolite.compound_variable
+    Args:
+        reaction ([type]): [description]
+
+    Returns:
+        [type]: [description]
+    """
+    concentration_term = sum(
+        stoic * metabolite.concentration_variable
         for metabolite, stoic in iteritems(reaction.metabolites)
-        if metabolite.Kegg_id not in ["C00080", "cpd00067"]
+        if metabolite.equilibrator_accession.inchi_key != PROTON_INCHI_KEY
+    )
+
+    error_term = sum(
+        stoic * metabolite.sphere_var_expression[0]
+        for metabolite, stoic in iteritems(reaction.metabolites)
+        if metabolite.equilibrator_accession.inchi_key != PROTON_INCHI_KEY
+    )
+
+    return (
+        reaction.delG_forward - RT * concentration_term - error_term,
+        reaction.delG_reverse + RT * concentration_term + error_term,
     )
 
 
-def stddev_sampling_rhs(
-    reaction, met_sample_dict
-):  # Have to define met_sample_dict, {metid:sampled_value}
-    """ Used for sampling. to calculate the rxn standard deviation from the sampled fromation energies
-    
-    Arguments:
-        reaction {core.reaction} -- reaction object
-        met_sample_dict {Dict} -- Formation sample of metabolites
+def formation_exp(reaction, component_variables):
 
-    Returns:
-        float -- total S.D of reaction sample (S.T @ Sample)
-    """
-    rxn_delG_stdev = 0
-    for metabolite, stoic in iteritems(reaction.metabolites):
-        rxn_delG_stdev += stoic * (float(met_sample_dict[metabolite.id]))
-
-    return rxn_delG_stdev
+    return sum(
+        stoic * (metabolite.compound_vector @ np.array(component_variables))[0]
+        for metabolite, stoic in iteritems(reaction.metabolites)
+        if metabolite.Kegg_id not in ["C00080", "cpd00067"]
+    )
 
 
 def quad_constraint(covar, mets, met_var_dict):

@@ -4,7 +4,6 @@ from .sampling_util import (
     compare_dataframes,
     extreme_value_distribution,
 )
-from ..util.constraints import stddev_sampling_rhs
 from .variability import variability
 from pandas import DataFrame, Series, concat
 import numpy as np

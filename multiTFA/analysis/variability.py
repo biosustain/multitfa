@@ -3,7 +3,9 @@ from pandas import DataFrame, Series, option_context
 from copy import deepcopy, copy
 
 
-def variability(model, variable_list=None, min_growth=False, fraction_of_optim=0.9):
+def variability(
+    model_variability, variable_list=None, min_growth=False, fraction_of_optim=0.9
+):
     """Performs thermodynamic variability analysis on t_model. Determines the minimum and maximum values for the input variables (Flux, Gibbs free energies and metabolite concentrations). if min_growth constraint is applied then growth is maintained at given percentage of optimum. 
 
     :param model: thermodynamic model
@@ -19,6 +21,7 @@ def variability(model, variable_list=None, min_growth=False, fraction_of_optim=0
     :rtype: pd.Dataframe
     """
 
+    model = copy(model_variability)
     if variable_list == None:
         variables = [var.name for var in model.solver.variables]
     else:
@@ -102,13 +105,13 @@ def variability_legacy_gurobi(
 
     model.gurobi_interface.optimize()
     # if warm start not provided start with box solution
-    if len(warm_start) == 0:
-        model.slim_optimize()
-        if model.solver.status == "optimal":
-            for var in model.variables:
-                if var.name.startswith("indicator_"):
-                    warm_start[var.name] = model.solver.primal_values[var.name]
-
+    # if len(warm_start) == 0:
+    #    model.slim_optimize()
+    #    if model.solver.status == "optimal":
+    #        for var in model.variables:
+    #            if var.name.startswith("indicator_"):
+    #                warm_start[var.name] = model.solver.primal_values[var.name]
+    print("updated")
     if min_growth:
         if model.solver.objective.direction == "max":
             fva_old_objective = model.gurobi_interface.addVar(
@@ -192,6 +195,7 @@ def variability_legacy_gurobi(
 import os
 from random import choices
 import string
+import tempfile
 
 
 def variability_legacy_cplex(
@@ -215,13 +219,15 @@ def variability_legacy_cplex(
     if not os.path.exists(tmp_dir):
         os.makedirs(tmp_dir)
 
-    rand_str = "".join(choices(string.ascii_lowercase + string.digits, k=6))
-    # write cplex model to mps file and re read
-    model.cplex_interface.write(tmp_dir + os.pardir + rand_str + ".mps")
-
     # Instantiate Cplex model
     cplex_model = Cplex()
-    cplex_model.read(tmp_dir + os.pardir + rand_str + ".mps")
+    rand_str = "".join(choices(string.ascii_lowercase + string.digits, k=6))
+
+    # write cplex model to mps file and re read
+    with tempfile.TemporaryDirectory() as td:
+        temp_filename = os.path.join(td, rand_str + ".mps")
+        model.cplex_interface.write(temp_filename)
+        cplex_model.read(temp_filename)
 
     # Make shorts for sense
     max_sense = cplex_model.objective.sense.maximize
@@ -268,7 +274,7 @@ def variability_legacy_cplex(
             )
 
         # Add the minimal growth/production constraint
-        indices = cplex_model.linear_constraints.add(
+        _ = cplex_model.linear_constraints.add(
             lin_expr=[
                 SparsePair(
                     ind=[biomass_for_name, biomass_rev_name, fva_old_objective],
