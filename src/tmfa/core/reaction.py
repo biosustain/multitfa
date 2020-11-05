@@ -45,7 +45,7 @@ class thermo_reaction(Reaction):
 
     @property
     def delG_forward(self):
-        """ An optlang variable representing the Gibbs energy of the forward reaction.
+        """An optlang variable representing the Gibbs energy of the forward reaction.
 
         Returns
         -------

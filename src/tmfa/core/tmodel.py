@@ -537,8 +537,9 @@ class tmodel(Model):
             ]  # Covariance matrix for the high variance components
 
             cholesky_large_variance = matrix_decomposition(large_component_covariance)
-            chi2_value_high = stats.chi2.isf(q=0.05,
-                                             df=cholesky_large_variance.shape[1])
+            chi2_value_high = stats.chi2.isf(
+                q=0.05, df=cholesky_large_variance.shape[1]
+            )
 
             # Insert empty rows for the low_variance_components
             for i in low_variance_indices:
