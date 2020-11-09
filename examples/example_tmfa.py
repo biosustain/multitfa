@@ -1,14 +1,8 @@
 from cobra import io
 from tmfa.core import tmodel
 
-model = io.load_matlab_model("small_ecoli.mat")
+model = io.load_matlab_model("e_coli_core.mat")
 
-kegg_map = {}
-with open("ecoli_kegg_map.txt", "r") as f:
-    for line in f:
-        line = line.strip()
-        line = line.split("\t")
-        kegg_map[line[0]] = line[1]
 
 pH_I_T_dict = {
     "pH": {"c": 7.5, "e": 7, "p": 7},
@@ -16,23 +10,25 @@ pH_I_T_dict = {
     "T": {"c": 298.15, "e": 298.15, "p": 298.15},
 }
 del_psi_dict = {
-    "c": {"e": 0, "p": 150},
-    "e": {"c": 0, "p": 0},
-    "p": {"c": -150, "e": 0},
-}
-Excl = [i.id for i in model.reactions if "DM_" in i.id]
-conc_dict = {
-    "min": {"atp_c": 1e-3, "adp_c": 4e-4, "amp_c": 2e-4},
-    "max": {"atp_c": 1e-2, "adp_c": 7e-4, "amp_c": 3e-4},
+    "c": {"c": 0, "e": 0, "p": 150},
+    "e": {"c": 0, "e": 0, "p": 0},
+    "p": {"c": -150, "e": 0, "p": 0},
 }
 
+import pandas as pd
+
+del_psi = pd.DataFrame.from_dict(data=del_psi_dict)
+comp_info = pd.DataFrame.from_dict(data=pH_I_T_dict)
+
+Excl = [
+    rxn.id
+    for rxn in model.reactions
+    if rxn.id.startswith("EX_") or rxn.id.startswith("DM_")
+] + ["BIOMASS_Ecoli_core_w_GAM", "O2t", "H2Ot"]
+
+
 tfa_model = tmodel(
-    model=model,
-    Kegg_map=kegg_map,
-    pH_I_dict=pH_I_T_dict,
-    del_psi_dict=del_psi_dict,
-    Exclude_list=Excl,
-    concentration_dict=conc_dict,
+    model, Exclude_list=Excl, compartment_info=comp_info, membrane_potential=del_psi
 )
 tfa_model.solver = "cplex"
 from tmfa.analysis import variability_legacy_cplex
