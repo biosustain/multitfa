@@ -521,7 +521,7 @@ class tmodel(Model):
                 :, low_variance_indices
             ][low_variance_indices, :]
             cholesky_small_variance = matrix_decomposition(small_component_covariance)
-            chi2_value_small = stat.chi2.isf(
+            chi2_value_small = stats.chi2.isf(
                 q=0.05, df=cholesky_small_variance.shape[1]
             )  # Chi-square value to map confidence interval
 
@@ -543,7 +543,7 @@ class tmodel(Model):
             ]  # Covariance matrix for the high variance components
 
             cholesky_large_variance = matrix_decomposition(large_component_covariance)
-            chi2_value_high = stat.chi2.isf(q=0.05, df=cholesky_large_variance.shape[1])
+            chi2_value_high = stats.chi2.isf(q=0.05, df=cholesky_large_variance.shape[1])
 
             # Insert empty rows for the low_variance_components
             for i in low_variance_indices:
