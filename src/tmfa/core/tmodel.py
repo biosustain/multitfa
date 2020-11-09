@@ -94,10 +94,7 @@ class tmodel(Model):
         self.metabolites = DictList()
         do_not_copy_by_ref = {"_reaction", "_model"}
         for metabolite in model.metabolites:
-            new_met = Thermo_met(
-                metabolite=metabolite,
-                updated_model=self,
-            )
+            new_met = Thermo_met(metabolite=metabolite, updated_model=self,)
             self.metabolites.append(new_met)
 
         self.genes = DictList()
@@ -114,10 +111,7 @@ class tmodel(Model):
         self.reactions = DictList()
         do_not_copy_by_ref = {"_model", "_metabolites", "_genes"}
         for reaction in model.reactions:
-            new_reaction = thermo_reaction(
-                cobra_rxn=reaction,
-                updated_model=self,
-            )
+            new_reaction = thermo_reaction(cobra_rxn=reaction, updated_model=self,)
             self.reactions.append(new_reaction)
 
         try:
@@ -228,36 +222,41 @@ class tmodel(Model):
             return self._metabolite_equilibrator_accessions
 
     def populate_metabolite_properties(self):
+        """Local cache file for equilibrator-api data. This is a temporary fix till equilibrator's cache 
+
+        Returns
+        -------
+        dict
+            Dictionary of metabolite id to corresponding equilibrator compound object
+        """
         if os.path.isfile(cache_file):
             with open(cache_file, "rb") as handle:
                 metabolite_accessions, microspecies, mg_dissociation_data = pickle.load(
                     handle
                 )
 
-            accessions = {}
-            for metabolite in self.metabolites:
-                if metabolite.Kegg_id in metabolite_accessions:
-                    accessions[metabolite.id] = metabolite_accessions[
+        accessions = {}
+        for metabolite in self.metabolites:
+            if metabolite.Kegg_id in metabolite_accessions:
+                accessions[metabolite.id] = metabolite_accessions[metabolite.Kegg_id]
+            else:
+                eq_accession = api.get_compound(metabolite.Kegg_id)
+                accessions[metabolite.id] = eq_accession
+                # update the cache file
+                if eq_accession is not None:
+                    metabolite_accessions[metabolite.Kegg_id] = eq_accession
+                    microspecies[metabolite.Kegg_id] = eq_accession.microspecies
+                    mg_dissociation_data[
                         metabolite.Kegg_id
-                    ]
-                else:
-                    eq_accession = api.get_compound(metabolite.Kegg_id)
-                    accessions[metabolite.id] = eq_accession
-                    # update the cache file
-                    if eq_accession is not None:
-                        metabolite_accessions[metabolite.Kegg_id] = eq_accession
-                        microspecies[metabolite.Kegg_id] = eq_accession.microspecies
-                        mg_dissociation_data[
-                            metabolite.Kegg_id
-                        ] = eq_accession.magnesium_dissociation_constants
+                    ] = eq_accession.magnesium_dissociation_constants
 
-            # Re-write the cache file with updated values
-            with open(cache_file, "wb") as handle:
-                pickle.dump(
-                    [metabolite_accessions, microspecies, mg_dissociation_data], handle
-                )
+        # Re-write the cache file with updated values
+        with open(cache_file, "wb") as handle:
+            pickle.dump(
+                [metabolite_accessions, microspecies, mg_dissociation_data], handle
+            )
 
-            return accessions
+        return accessions
 
     @property
     def compound_vector_matrix(self):
