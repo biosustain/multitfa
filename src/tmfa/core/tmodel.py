@@ -251,10 +251,10 @@ class tmodel(Model):
                     ] = eq_accession.magnesium_dissociation_constants
 
         # Re-write the cache file with updated values
-        with open(cache_file, "wb") as handle:
-            pickle.dump(
-                [metabolite_accessions, microspecies, mg_dissociation_data], handle
-            )
+        # with open(cache_file, "wb") as handle:
+        #    pickle.dump(
+        #        [metabolite_accessions, microspecies, mg_dissociation_data], handle
+        #    )
 
         return accessions
 
