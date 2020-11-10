@@ -1,7 +1,5 @@
-#!/usr/bin/env python
-
-
-# Copyright (c) 2018, Vishnuvardhan Mahamkali.
+# Copyright (c) 2018, Novo Nordisk Foundation Center for Biosustainability,
+#     Technical University of Denmark.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,12 +14,12 @@
 # limitations under the License.
 
 
-"""Set up the multivariate tMFA package."""
+"""Define general helper functions."""
 
 
-import versioneer
-from setuptools import setup
+from depinfo import print_dependencies
 
 
-# All other arguments are defined in `setup.cfg`.
-setup(version=versioneer.get_version(), cmdclass=versioneer.get_cmdclass())
+def show_versions():
+    """Print dependency information."""
+    print_dependencies("tmfa")

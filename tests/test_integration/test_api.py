@@ -1,7 +1,5 @@
-#!/usr/bin/env python
-
-
-# Copyright (c) 2018, Vishnuvardhan Mahamkali.
+# Copyright (c) 2018, Novo Nordisk Foundation Center for Biosustainability,
+#     Technical University of Denmark.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,12 +14,16 @@
 # limitations under the License.
 
 
-"""Set up the multivariate tMFA package."""
+"""Ensure a consistent public package interface."""
 
 
-import versioneer
-from setuptools import setup
+from importlib import import_module
+
+import pytest
 
 
-# All other arguments are defined in `setup.cfg`.
-setup(version=versioneer.get_version(), cmdclass=versioneer.get_cmdclass())
+@pytest.mark.parametrize("public_module, symbol", [("tmfa", "show_versions")])
+def test_public_api(public_module, symbol):
+    """Expect the given public package interface."""
+    public_module = import_module(public_module)
+    assert hasattr(public_module, symbol)
