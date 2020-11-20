@@ -234,6 +234,8 @@ class tmodel(Model):
                 metabolite_accessions, microspecies, mg_dissociation_data = pickle.load(
                     handle
                 )
+        else:
+            metabolite_accessions = {}
 
         accessions = {}
         for metabolite in self.metabolites:
@@ -243,12 +245,12 @@ class tmodel(Model):
                 eq_accession = api.get_compound(metabolite.Kegg_id)
                 accessions[metabolite.id] = eq_accession
                 # update the cache file
-                if eq_accession is not None:
-                    metabolite_accessions[metabolite.Kegg_id] = eq_accession
-                    microspecies[metabolite.Kegg_id] = eq_accession.microspecies
-                    mg_dissociation_data[
-                        metabolite.Kegg_id
-                    ] = eq_accession.magnesium_dissociation_constants
+                #if eq_accession is not None:
+                #    metabolite_accessions[metabolite.Kegg_id] = eq_accession
+                #    microspecies[metabolite.Kegg_id] = eq_accession.microspecies
+                #    mg_dissociation_data[
+                #        metabolite.Kegg_id
+                #    ] = eq_accession.magnesium_dissociation_constants
 
         # Re-write the cache file with updated values
         # with open(cache_file, "wb") as handle:
