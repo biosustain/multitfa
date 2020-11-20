@@ -2,3 +2,4 @@ include README.rst
 include LICENSE
 include pyproject.toml
 include src/tmfa/_version.py
+include src/tmfa/data/component_data.npz
