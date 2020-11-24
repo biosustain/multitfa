@@ -1,9 +1,10 @@
 import numpy as np
 from optlang import Constraint
-from scipy.stats import genextreme
+from scipy import stats
 
 from ..util.constraints import *
-from ..util.thermo_constants import RT
+from ..util.thermo_constants import *
+from ..util.linalg_fun import *
 
 
 def generate_n_sphere_sample(n_variables):
@@ -42,71 +43,97 @@ def generate_ellipsoid_sample(cholesky):
     return ellipsoid_sample
 
 
-def generate_constraints_sample(model):
-    """[summary]
+def preprocess_model(model):
+    # First remove the delG constraint and associated variables, we will add them later
+    remove_vars = [
+        var
+        for var in model.variables
+        if var.name.startswith("component_") or var.name.startswith("dG_err_")
+    ]
+    remove_cons = [
+        cons
+        for cons in model.constraints
+        if cons.name.startswith("delG_") or cons.name.startswith("std_dev_")
+    ]
 
-    Arguments:
-        model {[type]} -- [description]
+    # Pick indices of components present in the current model
+    model_component_indices = [
+        i
+        for i in range(model.compound_vector_matrix.shape[1])
+        if np.any(model.compound_vector_matrix[:, i])
+    ]
 
-    Returns:
-        [type] -- [description]
-    """
+    # Reduced the compound_vector to contain only the non zero entries
+    model_compound_vector = model.compound_vector_matrix[:, model_component_indices]
 
-    # massbalance = massbalance_constraint(model)
+    # Now extract the sub covariance matrix containing only the components present in the model
+    component_model_covariance = covariance[:, model_component_indices][
+        model_component_indices, :
+    ]
 
-    # formation_sample = generate_ellipsoid_sample(model.cholskey_matrix)
-    # met_ids = [i.id for i in model.metabolites]
+    # Now separate the compounds that have variance > 1000 and others to avoid numerical issues
+    high_variance_indices = np.where(np.diag(component_model_covariance) > 1000)[0]
+    low_variance_indices = np.where(np.diag(component_model_covariance) < 1000)[0]
 
-    constraints_list = []
+    # Calculate cholesky matrix for two different covariance matrices
+    if len(low_variance_indices) > 0:
+        small_component_covariance = component_model_covariance[
+            :, low_variance_indices
+        ][low_variance_indices, :]
+
+        cholesky_small_variance = matrix_decomposition(small_component_covariance)
+        chi2_value_small = stats.chi2.isf(
+            q=0.05, df=cholesky_small_variance.shape[1]
+        )  # Chi-square value to map confidence interval
+
+        for i in high_variance_indices:
+            zeros_axis = np.zeros((cholesky_small_variance.shape[1],))
+            cholesky_small_variance = np.insert(
+                cholesky_small_variance, i, zeros_axis, axis=0
+            )
+
+        metabolite_sphere_small = (
+            model_compound_vector @ cholesky_small_variance
+        )  # This is a fixed term compound_vector @ cholesky
+
+    if len(high_variance_indices) > 0:
+        large_component_covariance = component_model_covariance[
+            :, high_variance_indices
+        ][
+            high_variance_indices, :
+        ]  # Covariance matrix for the high variance components
+
+        cholesky_large_variance = matrix_decomposition(large_component_covariance)
+        chi2_value_high = stats.chi2.isf(q=0.05, df=cholesky_large_variance.shape[1])
+
+        # Insert empty rows for the low_variance_components
+        for i in low_variance_indices:
+            zeros_axis = np.zeros((cholesky_large_variance.shape[1],))
+            cholesky_large_variance = np.insert(
+                cholesky_large_variance, i, zeros_axis, axis=0
+            )
+        metabolite_sphere_large = (
+            model_compound_vector @ cholesky_large_variance
+        )  # This is a fixed term compound_vector @ cholesky
+
+        proton_indices = [
+            model.metabolites.index(metabolite)
+            for metabolite in model.metabolites
+            if metabolite.equilibrator_accession is not None
+            if metabolite.equilibrator_accession.inchi_key == PROTON_INCHI_KEY
+        ]  # Get indices of protons in metabolite list to avoid double correcting them for concentrations
 
     for rxn in model.reactions:
         if rxn.id in model.Exclude_reactions:
             continue
 
-        directionality_constraint_f, directionality_constraint_r = directionality(rxn)
-        delG_indicator_f, delG_indicator_r = delG_indicator(rxn)
-
-        conc_exp = concentration_exp(rxn)
-        # delG_centroids[rxn.id] = rxn.delG_transform
-
-        lhs_forward = rxn.delG_forward - RT * conc_exp
-        lhs_reverse = rxn.delG_reverse + RT * conc_exp
-        rhs = rxn.delG_transform
-
-        delG_constraint_f = Constraint(
-            lhs_forward,
-            lb=rhs,
-            ub=rhs,
-            name="delG_{}".format(rxn.forward_variable.name),
-        )
-        delG_constraint_r = Constraint(
-            lhs_reverse,
-            lb=-rhs,
-            ub=-rhs,
-            name="delG_{}".format(rxn.reverse_variable.name),
+        concentration_term = sum(
+            stoic * metabolite.concentration_variable
+            for metabolite, stoic in iteritems(rxn.metabolites)
+            if metabolite.equilibrator_accession.inchi_key != PROTON_INCHI_KEY
         )
 
-        constraints_list.extend(
-            [
-                directionality_constraint_f,
-                directionality_constraint_r,
-                delG_indicator_f,
-                delG_indicator_r,
-                delG_constraint_f,
-                delG_constraint_r,
-            ]
-        )
-
-    # var_list = flux_variables + delG_variables + indicator_varibales
-    # constraints_list.extend(massbalance)
-
-    return constraints_list
-
-
-def update_model(model):
-    cons, var_list, _ = generate_constraints_sample(model)
-    model.add_cons_vars(cons)
-    model.add_cons_vars(var_list)
+    pass
 
 
 def compare_dataframes(df1, df2):
@@ -132,9 +159,9 @@ def extreme_value_distribution(data_set):
         data_set [list] -- The max or min range of Gibbs free energy values
 
     Returns:
-        tuple -- min or max value predicted from GEV at 95% confidence
+        tuple -- min or max value predicted from GEV at 99% confidence
     """
-    c, loc, scale = genextreme.fit(data_set)
-    min_extreme, max_extreme = genextreme.interval(0.95, c, loc, scale)
+    c, loc, scale = stats.genextreme.fit(data_set)
+    min_extreme, max_extreme = stats.genextreme.interval(0.99, c, loc, scale)
 
     return min_extreme, max_extreme

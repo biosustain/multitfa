@@ -9,10 +9,15 @@ from .sampling_util import (
     generate_ellipsoid_sample,
 )
 from .variability import variability
+from copy import copy
 
 
 def cutoff_sampling(
-    model, cutoff=100, variable_list=None, min_growth=False, fraction_of_optim=0.9
+    model_variability,
+    cutoff=100,
+    variable_list=None,
+    min_growth=False,
+    fraction_of_optim=0.9,
 ):
     """Implements the quadratic constraint using repeated sampling on the surface of ellipsoid. Exits when 100 consecutive samples represent better solution. We fix the formation energy variable lb & ub to the sampled covariance and solve the problem.
 
@@ -29,10 +34,14 @@ def cutoff_sampling(
     :return: Ranges of variables
     :rtype: Pd.DataFrame
     """
+    model = copy(model_variability)
     if variable_list == None:
         variables = [var.name for var in model.solver.variables]
     else:
         variables = [var for var in variable_list]
+
+    if np.isnan(model.slim_optimize()):
+        raise ValueError("model infeasible with given constraints")
 
     if min_growth:
         if model.solver.objective.direction == "max":
