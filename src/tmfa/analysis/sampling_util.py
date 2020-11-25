@@ -86,6 +86,14 @@ def preprocess_model(model):
             q=0.05, df=cholesky_small_variance.shape[1]
         )  # Chi-square value to map confidence interval
 
+        sphere_s_vars = np.array(
+            [
+                model.problem.Variable("Sphere_s_{}".format(i), lb=-1, ub=1)
+                for i in range(cholesky_small_variance.shape[1])
+            ]
+        )  # adding sphere variables for low variance compounds
+        model.add_cons_vars(sphere_s_vars.tolist())
+
         for i in high_variance_indices:
             zeros_axis = np.zeros((cholesky_small_variance.shape[1],))
             cholesky_small_variance = np.insert(
@@ -106,6 +114,14 @@ def preprocess_model(model):
         cholesky_large_variance = matrix_decomposition(large_component_covariance)
         chi2_value_high = stats.chi2.isf(q=0.05, df=cholesky_large_variance.shape[1])
 
+        sphere_l_vars = np.array(
+            [
+                model.problem.Variable("Sphere_l_{}".format(i), lb=-1, ub=1)
+                for i in range(cholesky_large_variance.shape[1])
+            ]
+        )  # adding sphere variables for high variance compounds
+        model.add_cons_vars(sphere_l_vars.tolist())
+
         # Insert empty rows for the low_variance_components
         for i in low_variance_indices:
             zeros_axis = np.zeros((cholesky_large_variance.shape[1],))
@@ -116,24 +132,72 @@ def preprocess_model(model):
             model_compound_vector @ cholesky_large_variance
         )  # This is a fixed term compound_vector @ cholesky
 
-        proton_indices = [
-            model.metabolites.index(metabolite)
-            for metabolite in model.metabolites
-            if metabolite.equilibrator_accession is not None
-            if metabolite.equilibrator_accession.inchi_key == PROTON_INCHI_KEY
-        ]  # Get indices of protons in metabolite list to avoid double correcting them for concentrations
+    small_sphere_vars = np.array(
+        [var for var in model.variables if var.name.startswith("Sphere_s_")]
+    )
+    large_sphere_vars = np.array(
+        [var for var in model.variables if var.name.startswith("Sphere_l_")]
+    )
 
+    delG_constraints = []
     for rxn in model.reactions:
         if rxn.id in model.Exclude_reactions:
             continue
-
+        S_vector = rxn.cal_stoichiometric_matrix()
         concentration_term = sum(
             stoic * metabolite.concentration_variable
             for metabolite, stoic in iteritems(rxn.metabolites)
             if metabolite.equilibrator_accession.inchi_key != PROTON_INCHI_KEY
         )
 
-    pass
+        if len(high_variance_indices) > 0:
+            coefficients_high_var = S_vector @ metabolite_sphere_large
+            err_expression_large = (
+                coefficients_high_var[np.nonzero(coefficients_high_var)]
+                @ large_sphere_vars[np.nonzero(coefficients_high_var)]
+            )
+        else:
+            err_expression_large = 0
+
+        if len(low_variance_indices) > 0:
+            coefficients_small_var = S_vector @ metabolite_sphere_small
+            err_expression_small = (
+                coefficients_small_var[np.nonzero(coefficients_small_var)]
+                @ small_sphere_vars[np.nonzero(coefficients_small_var)]
+            )
+        else:
+            err_expression_small = 0
+
+        lhs_forward = (
+            rxn.delG_forward
+            - RT * concentration_term
+            - err_expression_small
+            - err_expression_large
+        )
+        lhs_reverse = (
+            rxn.delG_reverse
+            + RT * concentration_term
+            + err_expression_small
+            + err_expression_large
+        )
+        rhs = rxn.delG_prime + rxn.delG_transport
+
+        delG_f = model.problem.Constraint(
+            lhs_forward,
+            lb=rhs,
+            ub=rhs,
+            name="delG_{}".format(rxn.forward_variable.name),
+        )
+        delG_r = model.problem.Constraint(
+            lhs_reverse,
+            lb=-rhs,
+            ub=-rhs,
+            name="delG_{}".format(rxn.reverse_variable.name),
+        )
+        delG_constraints.extend([delG_f, delG_r])
+    model.add_cons_vars(delG_constraints)
+
+    return model
 
 
 def compare_dataframes(df1, df2):
