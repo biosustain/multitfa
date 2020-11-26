@@ -151,7 +151,9 @@ def preprocess_model(model):
         )
 
         if len(high_variance_indices) > 0:
-            coefficients_high_var = S_vector @ metabolite_sphere_large
+            coefficients_high_var = (
+                np.sqrt(chi2_value_high) * S_vector @ metabolite_sphere_large
+            )
             err_expression_large = (
                 coefficients_high_var[np.nonzero(coefficients_high_var)]
                 @ large_sphere_vars[np.nonzero(coefficients_high_var)]
@@ -160,7 +162,9 @@ def preprocess_model(model):
             err_expression_large = 0
 
         if len(low_variance_indices) > 0:
-            coefficients_small_var = S_vector @ metabolite_sphere_small
+            coefficients_small_var = (
+                np.sqrt(chi2_value_small) * S_vector @ metabolite_sphere_small
+            )
             err_expression_small = (
                 coefficients_small_var[np.nonzero(coefficients_small_var)]
                 @ small_sphere_vars[np.nonzero(coefficients_small_var)]

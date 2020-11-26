@@ -3,11 +3,7 @@ from copy import deepcopy
 import numpy as np
 from pandas import DataFrame, Series, concat
 
-from .sampling_util import (
-    compare_dataframes,
-    extreme_value_distribution,
-    generate_ellipsoid_sample,
-)
+from .sampling_util import *
 from .variability import variability
 from copy import copy
 
@@ -34,7 +30,16 @@ def cutoff_sampling(
     :return: Ranges of variables
     :rtype: Pd.DataFrame
     """
-    model = copy(model_variability)
+    model = preprocess_model(model_variability)
+
+    # Retrieve small and large sphere variables
+    small_sphere_vars = [
+        var for var in model.variables if var.name.startswith("Sphere_s_")
+    ]
+    large_sphere_vars = [
+        var for var in model.variables if var.name.startswith("Sphere_l_")
+    ]
+
     if variable_list == None:
         variables = [var.name for var in model.solver.variables]
     else:
@@ -71,7 +76,8 @@ def cutoff_sampling(
         total_samples = total_samples + 1
 
         # Sample for formation energy covariance ellipsoid
-        formation_sample = generate_ellipsoid_sample(model.cholskey_matrix)
+        small_sphr_sample = generate_n_sphere_sample(len(small_sphere_vars))
+        large_sphr_sample = generate_n_sphere_sample(len(large_sphere_vars))
 
         # Fix the formation energy variable lb, ub to sampled formation energy
         for metabolite in model.metabolites:
