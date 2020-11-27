@@ -1,14 +1,14 @@
-.PHONY: qa
-
 ################################################################################
 # COMMANDS                                                                     #
 ################################################################################
 
+.PHONY: qa
 ## Apply code quality assurance tools.
 qa:
 	isort src/multitfa tests/ setup.py examples
 	black src/multitfa tests/ setup.py examples
 
+.PHONY: release
 ## Prepare a release by generating the automatic code documentation.
 release:
 	sphinx-apidoc -f -o docs/source/autogen src/multitfa
