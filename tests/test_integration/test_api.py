@@ -22,7 +22,7 @@ from importlib import import_module
 import pytest
 
 
-@pytest.mark.parametrize("public_module, symbol", [("tmfa", "show_versions")])
+@pytest.mark.parametrize("public_module, symbol", [("multitfa", "show_versions")])
 def test_public_api(public_module, symbol):
     """Expect the given public package interface."""
     public_module = import_module(public_module)

@@ -1,1 +1,1 @@
-src/tmfa/_version.py export-subst
+src/multitfa/_version.py export-subst

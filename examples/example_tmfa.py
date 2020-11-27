@@ -1,5 +1,5 @@
 from cobra import io
-from tmfa.core import tmodel
+from multitfa.core import tmodel
 
 model = io.load_matlab_model("e_coli_core.mat")
 
@@ -31,7 +31,7 @@ tfa_model = tmodel(
     model, Exclude_list=Excl, compartment_info=comp_info, membrane_potential=del_psi
 )
 tfa_model.solver = "cplex"
-from tmfa.analysis import variability_legacy_cplex
+from multitfa.analysis import variability_legacy_cplex
 
 vars_analysis = [rxn.id for rxn in tfa_model.reactions if not rxn.id.startswith("DM_")]
 

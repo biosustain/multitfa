@@ -6,12 +6,12 @@
 
 ## Apply code quality assurance tools.
 qa:
-	isort src/tmfa tests/ setup.py examples
-	black src/tmfa tests/ setup.py examples
+	isort src/multitfa tests/ setup.py examples
+	black src/multitfa tests/ setup.py examples
 
 ## Prepare a release by generating the automatic code documentation.
 release:
-	sphinx-apidoc -f -o docs/source/autogen src/tmfa
+	sphinx-apidoc -f -o docs/source/autogen src/multitfa
 
 ################################################################################
 # Self Documenting Commands                                                    #

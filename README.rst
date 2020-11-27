@@ -1,16 +1,16 @@
-=================
-Multivariate tMFA
-=================
+========
+multiTFA
+========
 
-.. image:: https://img.shields.io/pypi/v/tmfa.svg
-   :target: https://pypi.org/project/tmfa/
+.. image:: https://img.shields.io/pypi/v/multitfa.svg
+   :target: https://pypi.org/project/multitfa/
    :alt: Current PyPI Version
 
-.. image:: https://img.shields.io/pypi/pyversions/tmfa.svg
-   :target: https://pypi.org/project/tmfa/
+.. image:: https://img.shields.io/pypi/pyversions/multitfa.svg
+   :target: https://pypi.org/project/multitfa/
    :alt: Supported Python Versions
 
-.. image:: https://img.shields.io/pypi/l/tmfa.svg
+.. image:: https://img.shields.io/pypi/l/multitfa.svg
    :target: https://www.apache.org/licenses/LICENSE-2.0
    :alt: Apache Software License Version 2.0
 
@@ -18,25 +18,25 @@ Multivariate tMFA
    :target: .github/CODE_OF_CONDUCT.md
    :alt: Code of Conduct
 
-.. image:: https://github.com/biosustain/multivariate-tmfa/workflows/CI-CD/badge.svg
-   :target: https://github.com/biosustain/multivariate-tmfa/workflows/CI-CD
+.. image:: https://github.com/biosustain/multitfa/workflows/CI-CD/badge.svg
+   :target: https://github.com/biosustain/multitfa/workflows/CI-CD
    :alt: GitHub Actions
 
-.. image:: https://codecov.io/gh/biosustain/multivariate-tmfa/branch/master/graph/badge.svg
-   :target: https://codecov.io/gh/biosustain/multivariate-tmfa
+.. image:: https://codecov.io/gh/biosustain/multitfa/branch/master/graph/badge.svg
+   :target: https://codecov.io/gh/biosustain/multitfa
    :alt: Codecov
 
 .. image:: https://img.shields.io/badge/code%20style-black-000000.svg
    :target: https://github.com/ambv/black
    :alt: Code Style Black
 
-.. image:: https://readthedocs.org/projects/tmfa/badge/?version=latest
-   :target: https://tmfa.readthedocs.io/en/latest/?badge=latest
+.. image:: https://readthedocs.org/projects/multitfa/badge/?version=latest
+   :target: https://multitfa.readthedocs.io/en/latest/?badge=latest
    :alt: Documentation Status
 
 .. summary-start
 
-We present ``tmfa``, a multivariate thermodynamics-based metabolic flux analysis
+We present multiTFA, a multivariate thermodynamics-based metabolic flux analysis
 package for Python. The framework takes advantage of the reactions' Gibbs free
 energy covariance matrix to tightly constrain metabolic models using
 thermodynamic constraints. It represents an improvement over a previous
@@ -60,7 +60,7 @@ It's as simple as:
 
 .. code-block:: console
 
-    pip install tmfa
+    pip install multitfa
 
 We highly recommend the installation of a commercial mathematical optimization
 solver, like `GUROBI <https://www.gurobi.com/>`_ or `CPLEX

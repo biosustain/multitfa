@@ -17,7 +17,7 @@
 """Ensure the expected outcomes of helper functions."""
 
 
-import tmfa.helpers as helpers
+import multitfa.helpers as helpers
 
 
 def test_show_versions(capsys):
@@ -33,4 +33,4 @@ def test_show_versions(capsys):
 
     assert lines[7].startswith("Package Versions")
     assert lines[8].startswith("================")
-    assert any(line.startswith("tmfa") for line in lines[9:])
+    assert any(line.startswith("multitfa") for line in lines[9:])
