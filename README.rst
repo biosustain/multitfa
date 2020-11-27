@@ -22,7 +22,7 @@ multiTFA
    :target: https://github.com/biosustain/multitfa/workflows/CI-CD
    :alt: GitHub Actions
 
-.. image:: https://codecov.io/gh/biosustain/multitfa/branch/master/graph/badge.svg
+.. image:: https://codecov.io/gh/biosustain/multitfa/branch/main/graph/badge.svg
    :target: https://codecov.io/gh/biosustain/multitfa
    :alt: Codecov
 
