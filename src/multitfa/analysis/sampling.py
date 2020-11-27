@@ -1,11 +1,10 @@
-from copy import deepcopy
+from copy import copy, deepcopy
 
 import numpy as np
 from pandas import DataFrame, Series, concat
 
 from .sampling_util import *
 from .variability import variability
-from copy import copy
 
 
 def cutoff_sampling(

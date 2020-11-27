@@ -1,5 +1,7 @@
 from cobra import io
+
 from multitfa.core import tmodel
+
 
 model = io.load_matlab_model("e_coli_core.mat")
 
@@ -17,6 +19,7 @@ del_psi_dict = {
 
 import pandas as pd
 
+
 del_psi = pd.DataFrame.from_dict(data=del_psi_dict)
 comp_info = pd.DataFrame.from_dict(data=pH_I_T_dict)
 
@@ -33,6 +36,7 @@ tfa_model = tmodel(
 tfa_model.solver = "cplex"
 from multitfa.analysis import variability_legacy_cplex
 
+
 vars_analysis = [rxn.id for rxn in tfa_model.reactions if not rxn.id.startswith("DM_")]
 
 ranges = variability_legacy_cplex(tfa_model, variable_list=vars_analysis)
@@ -40,4 +44,3 @@ ranges = variability_legacy_cplex(tfa_model, variable_list=vars_analysis)
 f = open("ranges_ecoli_cplex.txt", "w")
 for index, ele in ranges.iterrows():
     f.write("{}\t{}\t{}\n".format(index, ele["minimum"], ele["maximum"]))
-

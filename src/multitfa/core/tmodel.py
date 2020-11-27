@@ -94,7 +94,10 @@ class tmodel(Model):
         self.metabolites = DictList()
         do_not_copy_by_ref = {"_reaction", "_model"}
         for metabolite in model.metabolites:
-            new_met = Thermo_met(metabolite=metabolite, updated_model=self,)
+            new_met = Thermo_met(
+                metabolite=metabolite,
+                updated_model=self,
+            )
             self.metabolites.append(new_met)
 
         self.genes = DictList()
@@ -111,7 +114,10 @@ class tmodel(Model):
         self.reactions = DictList()
         do_not_copy_by_ref = {"_model", "_metabolites", "_genes"}
         for reaction in model.reactions:
-            new_reaction = thermo_reaction(cobra_rxn=reaction, updated_model=self,)
+            new_reaction = thermo_reaction(
+                cobra_rxn=reaction,
+                updated_model=self,
+            )
             self.reactions.append(new_reaction)
 
         try:
@@ -222,7 +228,7 @@ class tmodel(Model):
             return self._metabolite_equilibrator_accessions
 
     def populate_metabolite_properties(self):
-        """Local cache file for equilibrator-api data. This is a temporary fix till equilibrator's cache 
+        """Local cache file for equilibrator-api data. This is a temporary fix till equilibrator's cache
 
         Returns
         -------
@@ -245,7 +251,7 @@ class tmodel(Model):
                 eq_accession = api.get_compound(metabolite.Kegg_id)
                 accessions[metabolite.id] = eq_accession
                 # update the cache file
-                #if eq_accession is not None:
+                # if eq_accession is not None:
                 #    metabolite_accessions[metabolite.Kegg_id] = eq_accession
                 #    microspecies[metabolite.Kegg_id] = eq_accession.microspecies
                 #    mg_dissociation_data[

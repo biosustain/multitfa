@@ -3,8 +3,8 @@ from optlang import Constraint
 from scipy import stats
 
 from ..util.constraints import *
-from ..util.thermo_constants import *
 from ..util.linalg_fun import *
+from ..util.thermo_constants import *
 
 
 def generate_n_sphere_sample(n_variables):
