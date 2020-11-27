@@ -15,20 +15,30 @@ def cutoff_sampling(
     min_growth=False,
     fraction_of_optim=0.9,
 ):
-    """Implements the quadratic constraint using repeated sampling on the surface of ellipsoid. Exits when 100 consecutive samples represent better solution. We fix the formation energy variable lb & ub to the sampled covariance and solve the problem.
+    """Implements the quadratic constraint using repeated sampling on the surface of ellipsoid. Exits when 100 consecutive samples represent better solution. We fix the component sphere variables lb & ub to the sampled covariance and solve the problem.
 
-    :param model: tmodel model with constraints
-    :type model: core.model
-    :param cutoff: number of consecutive samples with better solution, defaults to 100
-    :type cutoff: int, optional
-    :param variable_list: variable list run variability analysis, defaults to None
-    :type variable_list: List, optional
-    :param min_growth: if minimum growth constraint is needed, if yes, then a constraint is added to enforce cutoff percentage of objective is maintained, defaults to False
-    :type min_growth: bool, optional
-    :param fraction_of_optim: Percentage fraction of optimal growth , defaults to 0.9
-    :type fraction_of_optim: float, optional
-    :return: Ranges of variables
-    :rtype: Pd.DataFrame
+    Parameters
+    ----------
+    model_variability : cobra model
+        cobra model to which variability to apply
+    cutoff : int, optional
+        number of consecutive samples before we exit the sampling, by default 100
+    variable_list : list, optional
+        list of variable names to perform TVA on, by default None
+    min_growth : bool, optional
+        Boolean, to add minimum growth constraint or not, by default False
+    fraction_of_optim : float, optional
+        fraction of original growth/flux value, by default 0.9
+
+    Returns
+    -------
+    tuple
+        tuple of no.of samples taken to achieve optima and optimal ranges of variables (pd.Dataframe)
+
+    Raises
+    ------
+    ValueError
+        Initial check to see if model is feasible with given constraints
     """
     model = preprocess_model(model_variability)
 
@@ -75,22 +85,28 @@ def cutoff_sampling(
     while n_improvement < cutoff:
         total_samples = total_samples + 1
 
-        # Sample for formation energy covariance ellipsoid
+        # Sample for components energy covariance ellipsoid
         small_sphr_sample = generate_n_sphere_sample(len(small_sphere_vars))
         large_sphr_sample = generate_n_sphere_sample(len(large_sphere_vars))
 
-        # Fix the formation energy variable lb, ub to sampled formation energy
-        for metabolite in model.metabolites:
-            # To avoid lb > ub fix them to larger bounds
-            metabolite.compound_variable.lb = -1000
-            metabolite.compound_variable.ub = 1000
+        # Fix the component variable lb, ub to sampled formation energy
+        if len(small_sphere_vars) > 0:
+            for i in range(len(small_sphere_vars)):
+                # To avoid lb > ub fix them to larger bounds
+                small_sphere_vars[i].lb = -1000
+                small_sphere_vars[i].ub = 1000
 
-            metabolite.compound_variable.lb = formation_sample[
-                model.metabolites.index(metabolite)
-            ]
-            metabolite.compound_variable.ub = formation_sample[
-                model.metabolites.index(metabolite)
-            ]
+                small_sphere_vars[i].lb = small_sphr_sample[i]
+                small_sphere_vars[i].ub = small_sphr_sample[i]
+
+        if len(large_sphere_vars) > 0:
+            for i in range(len(large_sphere_vars)):
+                # To avoid lb > ub fix them to larger bounds
+                large_sphere_vars[i].lb = -1000
+                large_sphere_vars[i].ub = 1000
+
+                large_sphere_vars[i].lb = large_sphr_sample[i]
+                large_sphere_vars[i].ub = large_sphr_sample[i]
 
         tva_ranges = variability(model, variable_list=variables)
         if tva_ranges.empty or tva_ranges.isnull().all()["maximum"]:
@@ -111,23 +127,42 @@ def cutoff_sampling(
 
 
 def gev_sampling(
-    model, cutoff=1000, variable_list=None, min_growth=False, fraction_of_optim=0.9
+    model_variability,
+    cutoff=1000,
+    variable_list=None,
+    min_growth=False,
+    fraction_of_optim=0.9,
 ):
-    """[summary]
+    """Implements the quadratic constraint using repeated sampling on the surface of ellipsoid. After sampling for fixed number of times, we use generalised extreme value distribution to predict the possible extremum of the distribution. We fix the component sphere variables lb & ub to the sampled covariance and solve the problem.
 
-    :param model: [description]
-    :type model: [type]
-    :param cutoff: [description], defaults to 1000
-    :type cutoff: int, optional
-    :param variable_list: [description], defaults to None
-    :type variable_list: [type], optional
-    :param min_growth: [description], defaults to False
-    :type min_growth: bool, optional
-    :param fraction_of_optim: [description], defaults to 0.9
-    :type fraction_of_optim: float, optional
-    :return: [description]
-    :rtype: [type]
+    Parameters
+    ----------
+    model_variability : cobra model
+        cobra model to which variability to apply
+    cutoff : int, optional
+        number of samples to train extreme value distribution, by default 1000
+    variable_list : list, optional
+        list of variable names to perform TVA on, by default None
+    min_growth : bool, optional
+        Boolean, to add minimum growth constraint or not, by default False
+    fraction_of_optim : float, optional
+        fraction of original growth/flux value, by default 0.9
+
+    Returns
+    -------
+    pd.DataFrame
+        pd.DataFrame of ranges of values for the variables
     """
+    model = preprocess_model(model_variability)
+
+    # Retrieve small and large sphere variables
+    small_sphere_vars = [
+        var for var in model.variables if var.name.startswith("Sphere_s_")
+    ]
+    large_sphere_vars = [
+        var for var in model.variables if var.name.startswith("Sphere_l_")
+    ]
+
     if variable_list == None:
         variables = [var.name for var in model.solver.variables]
     else:
@@ -166,21 +201,28 @@ def gev_sampling(
     while total_samples < cutoff:
         total_samples = total_samples + 1
 
-        # Sample for formation energy covariance ellipsoid
-        formation_sample = generate_ellipsoid_sample(model.cholskey_matrix)
+        # Sample for components energy covariance ellipsoid
+        small_sphr_sample = generate_n_sphere_sample(len(small_sphere_vars))
+        large_sphr_sample = generate_n_sphere_sample(len(large_sphere_vars))
 
-        # Fix the formation energy variable lb, ub to sampled formation energy
-        for metabolite in model.metabolites:
-            # To avoid lb > ub fix them to larger bounds
-            metabolite.compound_variable.lb = -1000
-            metabolite.compound_variable.ub = 1000
+        # Fix the component variable lb, ub to sampled formation energy
+        if len(small_sphere_vars) > 0:
+            for i in range(len(small_sphere_vars)):
+                # To avoid lb > ub fix them to larger bounds
+                small_sphere_vars[i].lb = -1000
+                small_sphere_vars[i].ub = 1000
 
-            metabolite.compound_variable.lb = formation_sample[
-                model.metabolites.index(metabolite)
-            ]
-            metabolite.compound_variable.ub = formation_sample[
-                model.metabolites.index(metabolite)
-            ]
+                small_sphere_vars[i].lb = small_sphr_sample[i]
+                small_sphere_vars[i].ub = small_sphr_sample[i]
+
+        if len(large_sphere_vars) > 0:
+            for i in range(len(large_sphere_vars)):
+                # To avoid lb > ub fix them to larger bounds
+                large_sphere_vars[i].lb = -1000
+                large_sphere_vars[i].ub = 1000
+
+                large_sphere_vars[i].lb = large_sphr_sample[i]
+                large_sphere_vars[i].ub = large_sphr_sample[i]
 
         tva_ranges = variability(model, variable_list=variables)
 
