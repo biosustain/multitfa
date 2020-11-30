@@ -93,8 +93,6 @@ def variability(
     )
 
 
-from gurobipy import *
-
 
 def variability_legacy_gurobi(
     model_variability,
@@ -103,6 +101,8 @@ def variability_legacy_gurobi(
     fraction_of_optim=0.9,
     warm_start={},
 ):
+    from gurobipy import GRB
+
     model = copy(model_variability)
     if variable_list == None:
         variables = model.gurobi_interface.getVars()
@@ -110,14 +110,7 @@ def variability_legacy_gurobi(
         variables = [var for var in variable_list]
 
     model.gurobi_interface.optimize()
-    # if warm start not provided start with box solution
-    # if len(warm_start) == 0:
-    #    model.slim_optimize()
-    #    if model.solver.status == "optimal":
-    #        for var in model.variables:
-    #            if var.name.startswith("indicator_"):
-    #                warm_start[var.name] = model.solver.primal_values[var.name]
-    print("updated")
+
     if min_growth:
         if model.solver.objective.direction == "max":
             fva_old_objective = model.gurobi_interface.addVar(
