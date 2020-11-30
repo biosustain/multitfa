@@ -13,18 +13,26 @@ def variability(
     energies and metabolite concentrations). if min_growth constraint is applied then
     growth is maintained at given percentage of optimum.
 
-    :param model: thermodynamic model
-    :type model: core.model
-    :param variable_list: list of variables, if None performs on all the variables in the model, defaults to None
-    :type variable_list: list of str, optional
-    :param min_growth: if minimum growth constraint is needed, defaults to False
-    :type min_growth: bool, optional
-    :param fraction_of_optim: fraction of optimal growth rate needs to be maintained, defaults to 0.9
-    :type fraction_of_optim: float, optional
-    :raises ValueError: [description]
-    :return: minimum and max of variables
-    :rtype: pd.Dataframe
+    Parameters
+    ----------
+    model_variability : multitfa.core.tmodel
+        multitfa model after thermodynamic constraints are added
+    variable_list : List, optional
+        List of variables to perform TVA on, by default None
+    min_growth : bool, optional
+        if min growth contraint is needed, by default False
+    fraction_of_optim : float, optional
+        fraction of initial growth, constraint, by default 0.9
 
+    Returns
+    -------
+    pd.DataFrame
+        Dataframe of min max ranges of variables
+
+    Raises
+    ------
+    ValueError
+        If model is infeasible with initial constraints raises valueerror
     """
 
     model = copy(model_variability)
@@ -93,7 +101,6 @@ def variability(
     )
 
 
-
 def variability_legacy_gurobi(
     model_variability,
     variable_list=None,
@@ -101,6 +108,26 @@ def variability_legacy_gurobi(
     fraction_of_optim=0.9,
     warm_start={},
 ):
+    """Custom function to perform TVA on MIQC problem using gurobi.
+
+    Parameters
+    ----------
+    model_variability : multitfa.core.tmodel
+        multitfa model after thermodynamic constraints are added
+    variable_list : List, optional
+        List of variables to perform TVA on, by default None
+    min_growth : bool, optional
+        if min growth contraint is needed, by default False
+    fraction_of_optim : float, optional
+        fraction of initial growth, constraint, by default 0.9
+    warm_start : dict, optional
+        Optionally can specify warm start to speed up problem. variable name and initial solution, by default {}
+
+    Returns
+    -------
+    pd.DataFrame
+        Dataframe of min max ranges of variables
+    """
     from gurobipy import GRB
 
     model = copy(model_variability)
@@ -205,6 +232,31 @@ def variability_legacy_cplex(
     fraction_of_optim=0.9,
     warm_start={},
 ):
+    """Custom function to perform TVA on MIQC problem using gurobi.
+
+    Parameters
+    ----------
+    model : multitfa.core.tmodel
+        multitfa model after thermodynamic constraints are added
+    variable_list : List, optional
+        List of variables to perform TVA on, by default None
+    min_growth : bool, optional
+        if min growth contraint is needed, by default False
+    fraction_of_optim : float, optional
+        fraction of initial growth, constraint, by default 0.9
+    warm_start : dict, optional
+        Optionally can specify warm start to speed up problem. variable name and initial solution, by default {}
+
+    Returns
+    -------
+    pd.DataFrame
+        Dataframe of min max ranges of variables
+
+    Raises
+    ------
+    ValueError
+        [description]
+    """
     # Instead of copying the whole model, just copy the cplex solver object by writing to a file and reading again.
     from cplex import Cplex, SparsePair
 
