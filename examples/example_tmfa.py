@@ -33,8 +33,16 @@ Excl = [
 tfa_model = tmodel(
     model, Exclude_list=Excl, compartment_info=comp_info, membrane_potential=del_psi
 )
-tfa_model.solver = "cplex"
-from multitfa.analysis import variability_legacy_cplex
+for met in tfa_model.metabolites:
+    kegg_id = "bigg.metabolite:" + met.id[:-2]
+    met.Kegg_id = kegg_id
+
+tfa_model.solver = "cplex"  # This is example for cplex, change solver accordingly
+tfa_model.update()
+
+from multitfa.analysis import (
+    variability_legacy_cplex,
+)  # For using gurobi use the other function variability_legacy_gurobi
 
 
 vars_analysis = [rxn.id for rxn in tfa_model.reactions if not rxn.id.startswith("DM_")]
