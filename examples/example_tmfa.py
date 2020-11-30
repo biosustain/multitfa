@@ -1,10 +1,7 @@
 from cobra import io
-
 from multitfa.core import tmodel
 
-
 model = io.load_matlab_model("e_coli_core.mat")
-
 
 pH_I_T_dict = {
     "pH": {"c": 7.5, "e": 7, "p": 7},
@@ -18,7 +15,6 @@ del_psi_dict = {
 }
 
 import pandas as pd
-
 
 del_psi = pd.DataFrame.from_dict(data=del_psi_dict)
 comp_info = pd.DataFrame.from_dict(data=pH_I_T_dict)
@@ -37,7 +33,8 @@ for met in tfa_model.metabolites:
     kegg_id = "bigg.metabolite:" + met.id[:-2]
     met.Kegg_id = kegg_id
 
-tfa_model.solver = "cplex"  # This is example for cplex, change solver accordingly
+# This is example for cplex, change solver accordingly
+tfa_model.solver = "cplex"
 tfa_model.update()
 
 from multitfa.analysis import (
@@ -46,7 +43,6 @@ from multitfa.analysis import (
 
 
 vars_analysis = [rxn.id for rxn in tfa_model.reactions if not rxn.id.startswith("DM_")]
-
 ranges = variability_legacy_cplex(tfa_model, variable_list=vars_analysis)
 
 f = open("ranges_ecoli_cplex.txt", "w")
