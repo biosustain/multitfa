@@ -1,5 +1,7 @@
 from cobra import io
+
 from multitfa.core import tmodel
+
 
 model = io.load_matlab_model("e_coli_core.mat")
 
@@ -15,6 +17,7 @@ del_psi_dict = {
 }
 
 import pandas as pd
+
 
 del_psi = pd.DataFrame.from_dict(data=del_psi_dict)
 comp_info = pd.DataFrame.from_dict(data=pH_I_T_dict)
@@ -37,9 +40,9 @@ for met in tfa_model.metabolites:
 tfa_model.solver = "cplex"
 tfa_model.update()
 
-from multitfa.analysis import (
+from multitfa.analysis import (  # For using gurobi use the other function variability_legacy_gurobi
     variability_legacy_cplex,
-)  # For using gurobi use the other function variability_legacy_gurobi
+)
 
 
 vars_analysis = [rxn.id for rxn in tfa_model.reactions if not rxn.id.startswith("DM_")]
