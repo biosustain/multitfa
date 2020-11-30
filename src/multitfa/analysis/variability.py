@@ -168,7 +168,7 @@ def variability_legacy_gurobi(
     rxn_ids = [rxn.id for rxn in model.reactions]
 
     for i in range(len(variables)):
-        print(variables[i])
+
         # if the variable is reactions optimize for forward - reverse variables else optimize for the variable
         if variables[i] in rxn_ids:
             rxn = model.reactions.get_by_id(variables[i])
@@ -280,6 +280,11 @@ def variability_legacy_cplex(
         model.cplex_interface.write(temp_filename)
         cplex_model.read(temp_filename)
 
+    cplex_model.set_log_stream(None)
+    cplex_model.set_error_stream(None)
+    cplex_model.set_warning_stream(None)
+    cplex_model.set_results_stream(None)
+
     # Make shorts for sense
     max_sense = cplex_model.objective.sense.maximize
     min_sense = cplex_model.objective.sense.minimize
@@ -348,7 +353,6 @@ def variability_legacy_cplex(
         for varname in vars_list_cplex:
             cplex_model.objective.set_linear(varname, 0)
 
-        print(variables[i])
         # if the variable is reactions optimize for forward - reverse variables else optimize for the variable
         if variables[i] in rxn_ids:
             rxn = model.reactions.get_by_id(variables[i])

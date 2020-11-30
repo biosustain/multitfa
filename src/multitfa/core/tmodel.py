@@ -581,6 +581,12 @@ class tmodel(Model):
                 self.solver.problem.write(temp_filename)
                 cplex_model.read(temp_filename)
 
+            # Stop printing output in cplex
+            cplex_model.set_log_stream(None)
+            cplex_model.set_error_stream(None)
+            cplex_model.set_warning_stream(None)
+            cplex_model.set_results_stream(None)
+
             # Remove the unnecessary variables and constraints
             remove_vars = [
                 var
