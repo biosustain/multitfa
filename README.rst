@@ -48,23 +48,46 @@ various thermodynamic analyses on COBRA models, such as thermodynamic metabolic
 flux analysis, variability analysis, or flux sampling.  Please see below for
 further details.
 
-.. [1] Henry, Christopher S., Linda J. Broadbelt, and Vassily Hatzimanikatis.
-    "Thermodynamics-Based Metabolic Flux Analysis."
-    *Biophysical Journal* 92, no. 5 (March 1, 2007): 1792–1805.
-    https://doi.org/10.1529/biophysj.106.093138.
 
 Install
 =======
 
-It's as simple as:
+To install multitfa from PyPI is as simple as: (We recommend using a `virtual environment <https://docs.python-guide.org/dev/virtualenvs/>`_).
 
 .. code-block:: console
 
     pip install multitfa
 
+To install from source,
+
+.. code-block:: console
+
+   git clone https://github.com/biosustain/multitfa.git
+   cd multitfa
+   pip install .
+
+
+
 We highly recommend the installation of a commercial mathematical optimization
 solver, like `GUROBI <https://www.gurobi.com/>`_ or `CPLEX
 <https://www.ibm.com/analytics/cplex-optimizer>`_.
+
+Please note, Installation takes upto 3 GB. This is to accomodate `equilibrator-api <https://gitlab.com/equilibrator/equilibrator-api>`_ database files.
+
+Install Requirements
+====================
+
+Installation requires
+
+- cobra
+- depinfo
+- optlang<1.4.6
+- numpy
+- scipy
+- pandas
+- equilibrator-api==0.3.2b7
+- component-contribution==0.3.2b4
+- equilibrator-cache==0.3.2b2
 
 Usage
 =====
@@ -78,5 +101,24 @@ Copyright
 * Copyright © 2018, Novo Nordisk Foundation Center for Biosustainability.
 * Free software distributed under the `Apache Software License 2.0
   <https://www.apache.org/licenses/LICENSE-2.0>`_.
+
+
+Cite us
+=======
+
+If you use multitfa in a scientific publication, please cite `doi:10.1101/2020.12.01.407387 <https://doi.org/10.1101/2020.12.01.407387>`_.
+
+References
+==========
+
+.. [1] Henry, Christopher S., Linda J. Broadbelt, and Vassily Hatzimanikatis.
+    "Thermodynamics-Based Metabolic Flux Analysis."
+    *Biophysical Journal* 92, no. 5 (March 1, 2007): 1792–1805.
+    https://doi.org/10.1529/biophysj.106.093138.
+
+.. [2] Vishnuvardhan Mahamkali, Tim McCubbin, Moritz Emanuel Beber, Esteban Marcellin, Lars Keld Nielsen. 
+    "multiTFA: a Python package for multi-variate Thermodynamics-based Flux Analysis."
+    *bioRxiv* 2020.12.01.407387;
+    https://doi.org/10.1101/2020.12.01.407387
 
 .. summary-end
