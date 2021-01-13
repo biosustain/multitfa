@@ -23,11 +23,11 @@ class Solution:
         self.Gibbs_energies = Gibbs_energies
         self.metabolite_concentrations = metabolite_concentrations
 
-    def __repr__(self):
-        """String representation of the solution instance."""
-        if self.status != "optimal":
-            return "<Solution {0:s} at 0x{1:x}>".format(self.status, id(self))
-        return "<Solution {0:.3f} at 0x{1:x}>".format(self.objective_value, id(self))
+    # def __repr__(self):
+    #    """String representation of the solution instance."""
+    #    if self.status != "optimal":
+    #        return "<Solution {0:s} at 0x{1:x}>".format(self.status, id(self))
+    #    return "<Solution {0:.3f} at 0x{1:x}>".format(self.objective_value, id(self))
 
     def __getitem__(self, reaction_id):
         """
@@ -146,15 +146,19 @@ def get_legacy_solution(
     met_concentrations=None,
     raise_error=False,
 ):
+    solver_status = False
     if solver == "gurobi":
-        if model.gurobi_interface.status == 2:
-            solver_status = "optimal"
+        model.gurobi_interface.optimize()
+        if model.gurobi_interface.Status == 2:
+            solver_status = True
     elif solver == "cplex":
-        solver_status = model.cplex_interface.solve()
+        model.cplex_interface.solve()
+        if model.cplex_interface.solution.is_primal_feasible():
+            solver_status = True
     else:
         pass
 
-    if solver_status != "optimal":
+    if not solver_status:
         raise ValueError("model status not optimal")
 
     if reactions is None:
@@ -162,9 +166,11 @@ def get_legacy_solution(
     if metabolites is None:
         metabolites = model.metabolites
     if Gibbs_energy is None:
-        Gibbs_energy = [
-            var for var in model.solver.variables if var.name.startswith("dG_")
-        ]
+        Gibbs_energy = []
+        for rxn in model.reactions:
+            if rxn.id not in model.Exclude_reactions:
+                Gibbs_energy.extend([rxn.delG_forward.name, rxn.delG_reverse.name])
+
     if met_concentrations is None:
         met_concentrations = [
             var for var in model.solver.variables if var.name.startswith("lnc_")
@@ -192,8 +198,8 @@ def get_legacy_solution(
             )
 
         for (i, delG) in enumerate(Gibbs_energy):
-            delG_index.append(delG.name)
-            Gibbs_energies[i] = solver_interface.getVarByName(delG.name).x
+            delG_index.append(delG)
+            Gibbs_energies[i] = solver_interface.getVarByName(delG).x
 
         for (i, conc) in enumerate(met_concentrations):
             met_conc_index.append(conc.name)
@@ -208,22 +214,19 @@ def get_legacy_solution(
 
         for (i, rxn) in enumerate(reactions):
             rxn_index.append(rxn.id)
-            fluxes[i] = (
-                solver_interface.integer_var(name=rxn.id).solution_value
-                - solver_interface.integer_var(name=rxn.reverse_id).solution_value
-            )
+            fluxes[i] = solver_interface.solution.get_values(
+                rxn.id
+            ) - solver_interface.solution.get_values(rxn.reverse_id)
 
         for (i, delG) in enumerate(Gibbs_energy):
-            delG_index.append(delG.name)
-            Gibbs_energies[i] = solver_interface.integer_var(
-                name=delG.name
-            ).solution_value
+            delG_index.append(delG)
+            Gibbs_energies[i] = solver_interface.solution.get_values(delG)
 
         for (i, conc) in enumerate(met_concentrations):
             met_conc_index.append(conc.name)
-            metabolite_concentrations[i] = solver_interface.integer_var(
+            metabolite_concentrations[i] = solver_interface.solution.get_values(
                 conc.name
-            ).solution_value
+            )
 
         met_index = [met.id for met in metabolites]
     return Solution(
