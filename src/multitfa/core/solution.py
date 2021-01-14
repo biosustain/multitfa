@@ -23,11 +23,11 @@ class Solution:
         self.Gibbs_energies = Gibbs_energies
         self.metabolite_concentrations = metabolite_concentrations
 
-    # def __repr__(self):
-    #    """String representation of the solution instance."""
-    #    if self.status != "optimal":
-    #        return "<Solution {0:s} at 0x{1:x}>".format(self.status, id(self))
-    #    return "<Solution {0:.3f} at 0x{1:x}>".format(self.objective_value, id(self))
+    def __repr__(self):
+        """String representation of the solution instance."""
+        if self.status != "optimal":
+            return "<Solution {0:s} at 0x{1:x}>".format(self.status, id(self))
+        return "<Solution {0:.3f} at 0x{1:x}>".format(self.objective_value, id(self))
 
     def __getitem__(self, reaction_id):
         """
@@ -146,19 +146,22 @@ def get_legacy_solution(
     met_concentrations=None,
     raise_error=False,
 ):
-    solver_status = False
+    solver_status = "not optimal"
+    objective_value = "NA"
     if solver == "gurobi":
         model.gurobi_interface.optimize()
         if model.gurobi_interface.Status == 2:
-            solver_status = True
+            solver_status = "optimal"
+            objective_value = model.gurobi_interface.ObjVal
     elif solver == "cplex":
         model.cplex_interface.solve()
         if model.cplex_interface.solution.is_primal_feasible():
-            solver_status = True
+            solver_status = "optimal"
+            objective_value = model.cplex_interface.solution.get_objective_value()
     else:
         pass
 
-    if not solver_status:
+    if solver_status != "optimal":
         raise ValueError("model status not optimal")
 
     if reactions is None:
@@ -230,8 +233,8 @@ def get_legacy_solution(
 
         met_index = [met.id for met in metabolites]
     return Solution(
-        model.solver.objective.value,
-        model.solver.status,
+        objective_value,
+        solver_status,
         Series(index=rxn_index, data=fluxes, name="fluxes"),
         Series(index=rxn_index, data=reduced, name="reduced_costs"),
         Series(index=met_index, data=shadow, name="shadow_prices"),
