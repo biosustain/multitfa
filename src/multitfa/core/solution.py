@@ -146,11 +146,18 @@ def get_legacy_solution(
     met_concentrations=None,
     raise_error=False,
 ):
+    solver_status = "not optimal"
+    objective_value = "NA"
     if solver == "gurobi":
-        if model.gurobi_interface.status == 2:
+        model.gurobi_interface.optimize()
+        if model.gurobi_interface.Status == 2:
             solver_status = "optimal"
+            objective_value = model.gurobi_interface.ObjVal
     elif solver == "cplex":
-        solver_status = model.cplex_interface.solve()
+        model.cplex_interface.solve()
+        if model.cplex_interface.solution.is_primal_feasible():
+            solver_status = "optimal"
+            objective_value = model.cplex_interface.solution.get_objective_value()
     else:
         pass
 
@@ -162,9 +169,11 @@ def get_legacy_solution(
     if metabolites is None:
         metabolites = model.metabolites
     if Gibbs_energy is None:
-        Gibbs_energy = [
-            var for var in model.solver.variables if var.name.startswith("dG_")
-        ]
+        Gibbs_energy = []
+        for rxn in model.reactions:
+            if rxn.id not in model.Exclude_reactions:
+                Gibbs_energy.extend([rxn.delG_forward.name, rxn.delG_reverse.name])
+
     if met_concentrations is None:
         met_concentrations = [
             var for var in model.solver.variables if var.name.startswith("lnc_")
@@ -192,8 +201,8 @@ def get_legacy_solution(
             )
 
         for (i, delG) in enumerate(Gibbs_energy):
-            delG_index.append(delG.name)
-            Gibbs_energies[i] = solver_interface.getVarByName(delG.name).x
+            delG_index.append(delG)
+            Gibbs_energies[i] = solver_interface.getVarByName(delG).x
 
         for (i, conc) in enumerate(met_concentrations):
             met_conc_index.append(conc.name)
@@ -208,27 +217,24 @@ def get_legacy_solution(
 
         for (i, rxn) in enumerate(reactions):
             rxn_index.append(rxn.id)
-            fluxes[i] = (
-                solver_interface.integer_var(name=rxn.id).solution_value
-                - solver_interface.integer_var(name=rxn.reverse_id).solution_value
-            )
+            fluxes[i] = solver_interface.solution.get_values(
+                rxn.id
+            ) - solver_interface.solution.get_values(rxn.reverse_id)
 
         for (i, delG) in enumerate(Gibbs_energy):
-            delG_index.append(delG.name)
-            Gibbs_energies[i] = solver_interface.integer_var(
-                name=delG.name
-            ).solution_value
+            delG_index.append(delG)
+            Gibbs_energies[i] = solver_interface.solution.get_values(delG)
 
         for (i, conc) in enumerate(met_concentrations):
             met_conc_index.append(conc.name)
-            metabolite_concentrations[i] = solver_interface.integer_var(
+            metabolite_concentrations[i] = solver_interface.solution.get_values(
                 conc.name
-            ).solution_value
+            )
 
         met_index = [met.id for met in metabolites]
     return Solution(
-        model.solver.objective.value,
-        model.solver.status,
+        objective_value,
+        solver_status,
         Series(index=rxn_index, data=fluxes, name="fluxes"),
         Series(index=rxn_index, data=reduced, name="reduced_costs"),
         Series(index=met_index, data=shadow, name="shadow_prices"),

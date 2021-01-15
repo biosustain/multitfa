@@ -782,6 +782,8 @@ class tmodel(Model):
                     name="unit_normal_small_variance",
                 )
                 gurobi_model.update()
+            else:
+                sphere1_variables = []
 
             # QC for large variance components
             if len(high_variance_indices) > 0:
@@ -800,6 +802,8 @@ class tmodel(Model):
                     name="unit_normal_high_variance",
                 )
                 gurobi_model.update()
+            else:
+                sphere2_variables = []
 
             # Create a list of metabolite concentration variables
             concentration_variables = []
