@@ -56,6 +56,9 @@ def preprocess_model(model):
         if cons.name.startswith("delG_") or cons.name.startswith("std_dev_")
     ]
 
+    # Remove the variables and constraints from the model
+    model.remove_cons_vars(remove_cons + remove_vars)
+
     # Pick indices of components present in the current model
     model_component_indices = [
         i
