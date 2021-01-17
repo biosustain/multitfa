@@ -18,6 +18,7 @@ from ..util.thermo_constants import *
 from .compound import Thermo_met
 from .reaction import thermo_reaction
 from .solution import get_legacy_solution, get_solution
+from pathlib import Path
 
 
 api = ComponentContribution()
@@ -27,6 +28,7 @@ cwd = os.getcwd()
 
 import logging
 
+cache_file = Path(__file__).parent.parent / "data" / "compounds_cache.pickle"
 
 logs_dir = cwd + os.sep + "logs"
 if not os.path.exists(logs_dir):
@@ -34,18 +36,6 @@ if not os.path.exists(logs_dir):
 
 logging.basicConfig(
     filename=logs_dir + os.sep + "thermo_model.log", level=logging.DEBUG
-)
-
-cache_file = os.path.normpath(
-    os.path.dirname(os.path.abspath(__file__))
-    + os.sep
-    + os.pardir
-    + os.sep
-    + os.pardir
-    + os.sep
-    + "cache"
-    + os.sep
-    + "compounds_cache.pickle"
 )
 
 
@@ -241,7 +231,7 @@ class tmodel(Model):
                     handle
                 )
         else:
-            metabolite_accessions = {}
+            metabolite_accessions, microspecies, mg_dissociation_data = ({}, {}, {})
 
         accessions = {}
         for metabolite in self.metabolites:
@@ -251,18 +241,21 @@ class tmodel(Model):
                 eq_accession = api.get_compound(metabolite.Kegg_id)
                 accessions[metabolite.id] = eq_accession
                 # update the cache file
-                # if eq_accession is not None:
-                #    metabolite_accessions[metabolite.Kegg_id] = eq_accession
-                #    microspecies[metabolite.Kegg_id] = eq_accession.microspecies
-                #    mg_dissociation_data[
-                #        metabolite.Kegg_id
-                #    ] = eq_accession.magnesium_dissociation_constants
+                if eq_accession is not None:
+                    metabolite_accessions[metabolite.Kegg_id] = eq_accession
+                    microspecies[metabolite.Kegg_id] = eq_accession.microspecies
+                    mg_dissociation_data[
+                        metabolite.Kegg_id
+                    ] = eq_accession.magnesium_dissociation_constants
 
-        # Re-write the cache file with updated values
-        # with open(cache_file, "wb") as handle:
-        #    pickle.dump(
-        #        [metabolite_accessions, microspecies, mg_dissociation_data], handle
-        #    )
+        # Try and update the cache file with updated values
+        try:
+            with open(cache_file, "wb") as handle:
+                pickle.dump(
+                    [metabolite_accessions, microspecies, mg_dissociation_data], handle
+                )
+        except:
+            pass
 
         return accessions
 

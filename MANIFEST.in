@@ -3,3 +3,4 @@ include LICENSE
 include pyproject.toml
 include src/multitfa/_version.py
 include src/multitfa/data/component_data.npz
+include src/multitfa/data/compounds_cache.pickle

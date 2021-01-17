@@ -5,6 +5,7 @@ from pandas import DataFrame, Series, concat
 
 from .sampling_util import *
 from .variability import variability
+from copy import deepcopy
 
 
 def cutoff_sampling(
@@ -13,6 +14,7 @@ def cutoff_sampling(
     variable_list=None,
     min_growth=False,
     fraction_of_optim=0.9,
+    solver_name=None,
 ):
     """Implements the quadratic constraint using repeated sampling on the surface of ellipsoid. Exits when 100 consecutive samples represent better solution. We fix the component sphere variables lb & ub to the sampled covariance and solve the problem.
 
@@ -28,6 +30,8 @@ def cutoff_sampling(
         Boolean, to add minimum growth constraint or not, by default False
     fraction_of_optim : float, optional
         fraction of original growth/flux value, by default 0.9
+    solver_name : str, optional
+        preferred solver, if not specified and has more than one solver uses the same solver order as cobra, by default 0.9
 
     Returns
     -------
@@ -39,7 +43,11 @@ def cutoff_sampling(
     ValueError
         Initial check to see if model is feasible with given constraints
     """
-    model = preprocess_model(model_variability)
+    model_copy = deepcopy(model_variability)  # Copy the original model for sampling
+    model = preprocess_model(model_copy)  # Preprocess the model to add sphere variables
+
+    if solver_name:
+        model.solver = solver_name
 
     # Retrieve small and large sphere variables
     small_sphere_vars = [
@@ -78,6 +86,13 @@ def cutoff_sampling(
 
     representative_ranges = DataFrame(
         np.zeros((len(variables), 2)), columns=["minimum", "maximum"]
+    )
+
+    Whole_ranges = DataFrame(
+        {
+            "minimum": Series(index=variables, data=np.empty(len(variables))),
+            "maximum": Series(index=variables, data=np.empty(len(variables))),
+        }
     )
 
     n_improvement, total_samples = (0, 0)
@@ -121,8 +136,10 @@ def cutoff_sampling(
             else:
                 n_improvement = n_improvement + 1
 
+            Whole_ranges = concat([Whole_ranges, tva_ranges], axis=1)
+
         lastone = tva_ranges
-    return representative_ranges, total_samples
+    return representative_ranges, Whole_ranges, total_samples
 
 
 def gev_sampling(
@@ -131,6 +148,7 @@ def gev_sampling(
     variable_list=None,
     min_growth=False,
     fraction_of_optim=0.9,
+    solver_name=None,
 ):
     """Implements the quadratic constraint using repeated sampling on the surface of ellipsoid. After sampling for fixed number of times, we use generalised extreme value distribution to predict the possible extremum of the distribution. We fix the component sphere variables lb & ub to the sampled covariance and solve the problem.
 
@@ -146,13 +164,20 @@ def gev_sampling(
         Boolean, to add minimum growth constraint or not, by default False
     fraction_of_optim : float, optional
         fraction of original growth/flux value, by default 0.9
+    solver_name : str, optional
+        preferred solver, if not specified and has more than one solver uses the same solver order as cobra, by default 0.9
 
     Returns
     -------
     pd.DataFrame
         pd.DataFrame of ranges of values for the variables
     """
-    model = preprocess_model(model_variability)
+    model_copy = deepcopy(model_variability)
+
+    model = preprocess_model(model_copy)
+
+    if solver_name:
+        model.solver = solver_name
 
     # Retrieve small and large sphere variables
     small_sphere_vars = [
@@ -228,7 +253,7 @@ def gev_sampling(
         if tva_ranges.empty or tva_ranges.isnull().all()["maximum"]:
             total_samples = total_samples - 1
             continue
-
+        # print(total_samples, tva_ranges)
         Whole_ranges = concat([Whole_ranges, tva_ranges], axis=1)
 
     for var in variables:
@@ -244,7 +269,7 @@ def gev_sampling(
         }
     )
 
-    return representative_ranges
+    return representative_ranges, Whole_ranges
 
 
 def sampling(
