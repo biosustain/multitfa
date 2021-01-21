@@ -44,11 +44,25 @@ def generate_ellipsoid_sample(cholesky):
 
 
 def preprocess_model(model):
+    """This function preprocess the model for the sampling on the surface of the ellipsoid method. We first remove the existing dG constraint and associated error variables. Then add the sphere variables. Depending on the variance range of covariance matrix, we split the sphere variables in two ellipsoids.
+
+    Parameters
+    ----------
+    model : multitfa.core.tmodel
+        multitfa model, updated
+
+    Returns
+    -------
+    multitfa.core.tmodel
+        preprocessed model with modified thermo constraints to work on sampling approach
+    """
     # First remove the delG constraint and associated variables, we will add them later
     remove_vars = [
         var
         for var in model.variables
-        if var.name.startswith("component_") or var.name.startswith("dG_err_")
+        if var.name.startswith("component_")
+        or var.name.startswith("dG_err_")
+        or var.name.startswith("Sphere_")
     ]
     remove_cons = [
         cons
