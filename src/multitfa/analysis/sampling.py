@@ -43,7 +43,7 @@ def cutoff_sampling(
     ValueError
         Initial check to see if model is feasible with given constraints
     """
-    model_copy = deepcopy(model_variability)  # Copy the original model for sampling
+    model_copy = copy(model_variability)  # Copy the original model for sampling
     model = preprocess_model(model_copy)  # Preprocess the model to add sphere variables
 
     if solver_name:
@@ -172,7 +172,7 @@ def gev_sampling(
     pd.DataFrame
         pd.DataFrame of ranges of values for the variables
     """
-    model_copy = deepcopy(model_variability)
+    model_copy = copy(model_variability)
 
     model = preprocess_model(model_copy)
 
