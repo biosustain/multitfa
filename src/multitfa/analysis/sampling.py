@@ -5,7 +5,6 @@ from pandas import DataFrame, Series, concat
 
 from .sampling_util import *
 from .variability import variability
-from copy import deepcopy
 
 
 def cutoff_sampling(

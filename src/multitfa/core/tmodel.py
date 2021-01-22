@@ -3,6 +3,7 @@ import pickle
 import string
 import tempfile
 from copy import copy, deepcopy
+from pathlib import Path
 from random import choices
 
 import optlang
@@ -18,7 +19,6 @@ from ..util.thermo_constants import *
 from .compound import Thermo_met
 from .reaction import thermo_reaction
 from .solution import get_legacy_solution, get_solution
-from pathlib import Path
 
 
 api = ComponentContribution()
@@ -27,6 +27,7 @@ api = ComponentContribution()
 cwd = os.getcwd()
 
 import logging
+
 
 cache_file = Path(__file__).parent.parent / "data" / "compounds_cache.pickle"
 

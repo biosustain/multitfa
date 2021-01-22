@@ -1,7 +1,10 @@
-import pandas as pd
-from ..core import tmodel
-from cobra import io
 from os.path import abspath, dirname, join
+
+import pandas as pd
+from cobra import io
+
+from ..core import tmodel
+
 
 core_model_name = join(dirname(abspath(__file__)), "model", "e_coli_core.mat")
 

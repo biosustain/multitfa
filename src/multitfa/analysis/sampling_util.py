@@ -10,10 +10,15 @@ from ..util.thermo_constants import *
 def generate_n_sphere_sample(n_variables):
     """Generates unit n-sphere sample. Works by picking random sample from normal distribution and normalized by radius.
 
-    :param n_variables: Dimension of the n-sphere.
-    :type n_variables: float
-    :return: unit n-sphere sample
-    :rtype: np.ndarray
+    Parameters
+    ----------
+    n_variables : int
+        number of variables, dimension of the required sphere
+
+    Returns
+    -------
+    np.array
+        n-sphere sample with required dimensions
     """
     # n-sphere sample from N(0,1)
     random_sample = np.random.normal(loc=0, scale=1.0, size=(n_variables))
@@ -29,10 +34,15 @@ def generate_ellipsoid_sample(cholesky):
     N(mu,var) = mu + A @ N(0,1)
     A@A' = var, A is cholesky matrix
 
-    :param cholesky: cholesky matrix
-    :type cholesky: np.ndarray
-    :return: ellipsoid sample
-    :rtype: np.ndarray
+    Parameters
+    ----------
+    cholesky : np.ndarray
+        cholesky matrix
+
+    Returns
+    -------
+    np.array
+        numpy array containing ellipsoid sample with cholesky matrix length
     """
 
     n_dimensions = len(cholesky)
