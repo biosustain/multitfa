@@ -1,0 +1,3 @@
+Sphinx ~=3.4
+nbsphinx ~=0.8
+sphinx-theme-material ~=1.1
