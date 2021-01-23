@@ -1,23 +1,15 @@
-.. multitfa documentation master file, created by
-   sphinx-quickstart on Thu Jan 21 14:56:01 2021.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
-Welcome to multitfa's documentation!
-====================================
+multiTFA Documentation
+======================
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    :caption: Contents:
 
    getting_started
    solving_model
    variability_analysis
    additional_information
-
-.. automodule::core
-    :members:
-
+   _modules/multitfa
 
 Indices and tables
 ==================

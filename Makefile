@@ -11,7 +11,8 @@ qa:
 .PHONY: release
 ## Prepare a release by generating the automatic code documentation.
 release:
-	sphinx-apidoc -f -o docs/source/autogen src/multitfa
+	rm docs/source/_modules/*
+	sphinx-apidoc --force --no-toc -o docs/source/_modules src/multitfa
 
 ################################################################################
 # Self Documenting Commands                                                    #
