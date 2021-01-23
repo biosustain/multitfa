@@ -137,12 +137,13 @@ class Thermo_met(Metabolite):
 
     @property
     def Kegg_id(self):
-        """External database identifier to match and retrieve thermodynamic properties from equilibrator-api. Will accept any identifier that equilibrator uses. Please refer to equilibrator-api documentation. Should use their corresponding format.
+        """
+        External database identifier to match and retrieve thermodynamic properties.
 
-        for example for atp
-        E.g:
-        if bigg databse id: bigg.metabolite:atp
-            Kegg: kegg:C00002
+        Will accept any identifier that equilibrator uses. Please refer to
+        equilibrator-api documentation. Should use their corresponding format, for
+        example, for ATP if using the BiGG databse: 'bigg.metabolite:atp' or for KEGG
+        'kegg.compound:C00002'.
 
         Returns
         -------

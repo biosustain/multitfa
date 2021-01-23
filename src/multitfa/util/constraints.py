@@ -5,7 +5,7 @@ from six import iteritems
 from .thermo_constants import *
 
 
-""" This is a supplementary script to create all thermodynamic variables and constraints to add to the model.
+"""This is a supplementary script to create all thermodynamic variables and constraints to add to the model.
 """
 
 
@@ -102,13 +102,17 @@ def directionality(reaction):
 
 
 def delG_indicator(reaction):
-    """Indicator constraints to ensure delG < 0 always
-    delG -K + K*Zi <= 0
+    """
+    Indicator constraints that ensure that the reaction Gibb's free energy is negative.
+
+        delG -K + K*Zi <= 0
+
     Arguments:
         reaction {core.reaction} -- reaction object
 
     Returns:
         [tuple] -- tuple of indicator constraints
+
     """
     if reaction.model is not None:
 
