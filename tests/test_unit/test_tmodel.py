@@ -1,7 +1,10 @@
 from cobra.util.solver import linear_reaction_coefficients
+from numpy.testing._private.utils import assert_almost_equal
+from optlang.util import solve_with_glpsol
 import pytest
 import numpy as np
 import sys
+import optlang
 
 from .load_test_model import build_test_model
 
@@ -11,7 +14,7 @@ def tfa_model():
     return build_test_model()
 
 
-def test_no_cons(tfa_model):
+def test_num_cons_vars(tfa_model):
     # tfa_model = build_core_model()
     num_cons = 2 * 3 * (
         len(tfa_model.reactions) - len(tfa_model.Exclude_reactions)
@@ -25,3 +28,19 @@ def test_no_cons(tfa_model):
 
     assert num_cons == len(tfa_model.constraints)
     assert num_vars == len(tfa_model.variables)
+
+
+def test_solver_instances(tfa_model):
+    if optlang.available_solvers["GUROBI"]:
+        tfa_model.solver = "gurobi"
+        assert tfa_model.gurobi_interface
+    elif optlang.available_solvers["CPLEX"]:
+        tfa_model.solver = "cplex"
+        assert tfa_model.cplex_interface
+    else:
+        pass
+
+
+def test_optimization(tfa_model):
+    solution = tfa_model.optimize()
+    assert_almost_equal(solution.objective_value, 0.8739, decimal=3)
