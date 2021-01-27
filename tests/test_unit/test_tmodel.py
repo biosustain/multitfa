@@ -44,4 +44,4 @@ def test_solver_instances(tfa_model):
 
 def test_optimization(tfa_model):
     solution = tfa_model.optimize()
-    assert_almost_equal(solution.objective_value, 0.8739, decimal=3)
+    assert_almost_equal(abs(solution.objective_value), 0.8739, decimal=3)
