@@ -1,6 +1,7 @@
-from multitfa.analysis import generate_n_sphere_sample, preprocess_model
 import numpy as np
 import pytest
+
+from multitfa.analysis import generate_n_sphere_sample, preprocess_model
 
 
 def test_sphere():

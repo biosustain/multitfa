@@ -1,8 +1,9 @@
-from numpy.testing._private.utils import assert_approx_equal, assert_array_equal
-import pytest
-import numpy as np
 import sys
+
+import numpy as np
 import optlang
+import pytest
+from numpy.testing._private.utils import assert_approx_equal, assert_array_equal
 
 from .load_test_model import build_test_model
 

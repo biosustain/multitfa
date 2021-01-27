@@ -1,6 +1,7 @@
-from numpy.testing._private.utils import assert_approx_equal
-import pytest
 import numpy as np
+import pytest
+from numpy.testing._private.utils import assert_approx_equal
+
 from multitfa.core import Thermo_met
 
 from .load_test_model import build_test_model

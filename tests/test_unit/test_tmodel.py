@@ -1,10 +1,11 @@
+import sys
+
+import numpy as np
+import optlang
+import pytest
 from cobra.util.solver import linear_reaction_coefficients
 from numpy.testing._private.utils import assert_almost_equal
 from optlang.util import solve_with_glpsol
-import pytest
-import numpy as np
-import sys
-import optlang
 
 from .load_test_model import build_test_model
 
