@@ -68,9 +68,7 @@ To install from source,
 
 
 
-We highly recommend the installation of a commercial mathematical optimization
-solver, like `GUROBI <https://www.gurobi.com/>`_ or `CPLEX
-<https://www.ibm.com/analytics/cplex-optimizer>`_.
+We highly recommend the installing CPLEX <https://www.ibm.com/analytics/cplex-optimizer>`_. Although we support `GUROBI <https://www.gurobi.com/>`_ solver, we noticed that it is slower and often stuck when solving quadratic constraint problems.
 
 Please note, Installation takes upto 3 GB. This is to accomodate `equilibrator-api <https://gitlab.com/equilibrator/equilibrator-api>`_ database files.
 
