@@ -15,7 +15,7 @@ def tfa_met():
 def test_variables(tfa_met):
     assert tfa_met.concentration_variable
     assert tfa_met.delG_err_variable
-    assert tfa_met.compound_vector
+    assert np.any(tfa_met.compound_vector)
 
 
 def test_thermo_property(tfa_met):
