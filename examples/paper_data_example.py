@@ -6,7 +6,7 @@ from cobra import Configuration
 from cobra.io import load_model
 
 # For Gurobi, use the other function `variability_legacy_gurobi`.
-from multitfa.analysis import variability_legacy_cplex
+from multitfa import analysis
 from multitfa.core import tmodel
 
 
@@ -50,7 +50,11 @@ def main():
     vars_analysis = [
         rxn.id for rxn in tfa_model.reactions if not rxn.id.startswith("DM_")
     ]
-    ranges = variability_legacy_cplex(tfa_model, variable_list=vars_analysis)
+    ranges_miqc = analysis.variability_legacy_cplex(
+        tfa_model, variable_list=vars_analysis
+    )
+    ranges_mip = analysis.variability(tfa_model, variable_list=vars_analysis)
+    ranges = pd.concat([ranges_mip, ranges_miqc], axis=1)
     ranges.to_csv("ranges_ecoli_cplex.tsv", header=True, index=True, sep="\t")
 
 
