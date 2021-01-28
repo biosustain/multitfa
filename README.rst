@@ -90,8 +90,7 @@ Installation requires
 Usage
 =====
 
-Please take a look at the Python scripts and Jupyter notebooks in the
-``examples`` directory.
+The documentation is available online at `readthedocs <https://multitfa.readthedocs.io/en/latest/>` _.
 
 Copyright
 =========
