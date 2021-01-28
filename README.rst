@@ -90,7 +90,7 @@ Installation requires
 Usage
 =====
 
-The documentation is available online at `readthedocs <https://multitfa.readthedocs.io/en/latest/>` _.
+The documentation is available online at `readthedocs <https://multitfa.readthedocs.io/en/latest/>`_.
 
 Copyright
 =========
