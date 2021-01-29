@@ -6,7 +6,7 @@ Next Release
 ------------
 * Upcoming features and fixes
 
-0.1.2b (2021-1-22)
+0.1.2 (2021-1-29)
 ------------------
 * Added updated documentation
 * Fixed errors with scope of gurobi variables
