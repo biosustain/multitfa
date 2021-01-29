@@ -12,34 +12,10 @@ multitfa.util.constraints module
    :undoc-members:
    :show-inheritance:
 
-multitfa.util.correlation\_order module
----------------------------------------
-
-.. automodule:: multitfa.util.correlation_order
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-multitfa.util.dGf\_calculation module
--------------------------------------
-
-.. automodule:: multitfa.util.dGf_calculation
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 multitfa.util.linalg\_fun module
 --------------------------------
 
 .. automodule:: multitfa.util.linalg_fun
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-multitfa.util.posdef module
----------------------------
-
-.. automodule:: multitfa.util.posdef
    :members:
    :undoc-members:
    :show-inheritance:

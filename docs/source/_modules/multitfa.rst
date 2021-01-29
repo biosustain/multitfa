@@ -10,7 +10,6 @@ Subpackages
    multitfa.analysis
    multitfa.core
    multitfa.data
-   multitfa.test_model
    multitfa.util
 
 Submodules
