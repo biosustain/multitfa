@@ -87,6 +87,19 @@ Installation requires
 - component-contribution==0.3.2b4
 - equilibrator-cache==0.3.2b2
 
+for testing purposes,
+
+- pytest
+- tox
+
+An example test case was setup to get flux ranges of example script `paper_data_example.py` using `tox`. To run the test case, from inside `multitfa` directory
+
+.. code-block:: console
+
+   pip install tox
+   tox -e examples
+
+
 Usage
 =====
 
