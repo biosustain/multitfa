@@ -239,7 +239,13 @@ class tmodel(Model):
             if metabolite.Kegg_id in metabolite_accessions:
                 accessions[metabolite.id] = metabolite_accessions[metabolite.Kegg_id]
             else:
-                eq_accession = api.get_compound(metabolite.Kegg_id)
+                if metabolite.Kegg_id == "NA":
+                    eq_accession = None
+                else:
+                    try:
+                        eq_accession = api.get_compound(metabolite.Kegg_id)
+                    except:
+                        eq_accession = None
                 accessions[metabolite.id] = eq_accession
                 # update the cache file
                 if eq_accession is not None:
