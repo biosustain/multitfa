@@ -238,14 +238,25 @@ class tmodel(Model):
         for metabolite in self.metabolites:
             if metabolite.Kegg_id in metabolite_accessions:
                 accessions[metabolite.id] = metabolite_accessions[metabolite.Kegg_id]
+                logging.debug("{} fetched from cache data".format(metabolite.id))
             else:
                 if metabolite.Kegg_id == "NA":
                     eq_accession = None
+                    logging.debug(
+                        "Database identifier not available for {}, ignoring from thermodynamic analysis".format(
+                            metabolite.id
+                        )
+                    )
                 else:
                     try:
                         eq_accession = api.get_compound(metabolite.Kegg_id)
                     except:
                         eq_accession = None
+                        logging.debug(
+                            "Unable to fetch data from eQuilibrator for the metabolite {}, ignoring from thermodynamic analysis".format(
+                                metabolite.id
+                            )
+                        )
                 accessions[metabolite.id] = eq_accession
                 # update the cache file
                 if eq_accession is not None:
