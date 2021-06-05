@@ -436,7 +436,7 @@ class tmodel(Model):
         return rxn_constraints
 
     def update(self):
-        """ Adds the generated thermo constaints to  model. Checks for duplication"""
+        """Adds the generated thermo constaints to  model. Checks for duplication"""
         thermo_constraints = self._generate_constraints()
 
         for cons in thermo_constraints:
