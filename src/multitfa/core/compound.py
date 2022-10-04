@@ -28,9 +28,11 @@ class Thermo_met(Metabolite):
         self,
         metabolite,
         updated_model=None,
+        ignore=False,
     ):
         self._model = updated_model
         self._reaction = set()
+        self.is_ignore = ignore
         do_not_copy_by_ref = {"_reaction", "_model"}
         for attr, value in iteritems(metabolite.__dict__):
             if attr not in do_not_copy_by_ref:
@@ -244,7 +246,7 @@ class Thermo_met(Metabolite):
         Boolean
             True if component decomposition vector is zeros, False otherwise.
         """
-        if self.is_proton:
+        if self.is_proton or self.is_ignore:
             return False
         elif ~self.compound_vector.any():
             return True
