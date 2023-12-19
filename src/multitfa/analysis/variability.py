@@ -2,6 +2,13 @@ from copy import copy
 
 import numpy as np
 from pandas import DataFrame, Series
+import os
+
+cwd = os.getcwd()
+
+logs_dir = cwd + os.sep + "logs"
+if not os.path.exists(logs_dir):
+    os.makedirs(logs_dir)
 
 
 def variability(model_variability, variable_list=None):
@@ -217,6 +224,9 @@ def variability_legacy_cplex(
     if not os.path.exists(tmp_dir):
         os.makedirs(tmp_dir)
 
+    # Log file for debugging
+    cplexlog = open(logs_dir + os.sep + "cplex.log", "a")
+
     # Instantiate Cplex model
     cplex_model = Cplex()
     rand_str = "".join(choices(string.ascii_lowercase + string.digits, k=6))
@@ -227,10 +237,10 @@ def variability_legacy_cplex(
         model.cplex_interface.write(temp_filename)
         cplex_model.read(temp_filename)
 
-    cplex_model.set_log_stream(None)
-    cplex_model.set_error_stream(None)
-    cplex_model.set_warning_stream(None)
-    cplex_model.set_results_stream(None)
+    cplex_model.set_log_stream(cplexlog)
+    cplex_model.set_error_stream(cplexlog)
+    cplex_model.set_warning_stream(cplexlog)
+    cplex_model.set_results_stream(cplexlog)
 
     if params:
         # print("lol")

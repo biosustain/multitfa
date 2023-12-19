@@ -45,7 +45,7 @@ class Thermo_met(Metabolite):
         optlang.interface.variable
             optlang interface variable for concentration of metabolite. if metabolite is not linked to model, then None
         """
-        if self.model is not None:
+        if self.model:
             conc_var = "lnc_{}".format(self.id)
             return self.model.variables[conc_var]
         else:
@@ -63,7 +63,7 @@ class Thermo_met(Metabolite):
         try:
             return self._concentration_min
         except AttributeError:
-            if self.model.compartment_info is not None:
+            if not self.model.compartment_info.empty:
                 try:
                     self._concentration_min = float(
                         self.model.compartment_info["c_min"][self.compartment]
@@ -82,13 +82,13 @@ class Thermo_met(Metabolite):
             lb=np.log(value), ub=np.log(self.concentration_max)
         )
         # Update the Gurobi and Cplex interface bounds
-        if self.model.gurobi_interface is not None:
+        if self.model.gurobi_interface:
             self.model.gurobi_interface.getVarByName(
                 self.concentration_variable.name
             ).LB = np.log(value)
             self.model.gurobi_interface.update()
 
-        if self.model.cplex_interface is not None:
+        if self.model.cplex_interface:
             self.model.cplex_interface.variables.set_lower_bounds(
                 self.concentration_variable.name, np.log(value)
             )
@@ -105,7 +105,7 @@ class Thermo_met(Metabolite):
         try:
             return self._concentration_max
         except AttributeError:
-            if self.model.compartment_info is not None:
+            if not self.model.compartment_info.empty:
                 try:
                     self._concentration_max = float(
                         self.model.compartment_info["c_max"][self.compartment]
@@ -124,13 +124,13 @@ class Thermo_met(Metabolite):
             lb=np.log(self.concentration_min), ub=np.log(value)
         )
         # Update the Gurobi and cplex interface bounds
-        if self.model.gurobi_interface is not None:
+        if self.model.gurobi_interface:
             self.model.gurobi_interface.getVarByName(
                 self.concentration_variable.name
             ).UB = np.log(value)
             self.model.gurobi_interface.update()
 
-        if self.model.cplex_interface is not None:
+        if self.model.cplex_interface:
             self.model.cplex_interface.variables.set_upper_bounds(
                 self.concentration_variable.name, np.log(value)
             )
@@ -166,7 +166,7 @@ class Thermo_met(Metabolite):
         optlang.interface.variable
             metabolite Gibbs energy error variable, if metabolite is not associated with model, then None
         """
-        if self.model is not None:
+        if self.model:
             err_var = "dG_err_{}".format(self.id)
             return self.model.variables[err_var]
         else:

@@ -4,7 +4,7 @@ import numpy as np
 from cobra import Reaction
 from numpy import zeros
 from six import iteritems
-
+from math import isinf
 from ..util.thermo_constants import FARADAY
 
 
@@ -53,7 +53,7 @@ class thermo_reaction(Reaction):
             An optlang variable for the Gibbs energy of the forward half reaction or None if the reaction is not associated with the model or reaction is in the list of thermodynamic excluded reactions.
         """
         var_name = "dG_{}".format(self.forward_variable.name)
-        if self.model is not None:
+        if self.model:
             if self.id not in self.model.Exclude_reactions:
                 return self.model.variables[var_name]
             else:
@@ -71,7 +71,7 @@ class thermo_reaction(Reaction):
             An optlang variable for the Gibbs energy of the reverse half reaction or None if the reaction is not associated with the model or reaction is in the list of thermodynamic excluded reactions.
         """
         var_name = "dG_{}".format(self.reverse_variable.name)
-        if self.model is not None:
+        if self.model:
             if self.id not in self.model.Exclude_reactions:
                 return self.model.variables[var_name]
             else:
@@ -89,7 +89,7 @@ class thermo_reaction(Reaction):
             An optlang binary variable of forward half reaction or None if the reaction is not associated with the model or eaction is in the list of thermodynamic excluded reactions.
         """
         var_name = "indicator_{}".format(self.forward_variable.name)
-        if self.model is not None:
+        if self.model:
             if self.id not in self.model.Exclude_reactions:
                 return self.model.variables[var_name]
             else:
@@ -107,7 +107,7 @@ class thermo_reaction(Reaction):
             An optlang binary variable of reverse half reaction or None if the reaction is not associated with the model or eaction is in the list of thermodynamic excluded reactions.
         """
         var_name = "indicator_{}".format(self.reverse_variable.name)
-        if self.model is not None:
+        if self.model:
             if self.id not in self.model.Exclude_reactions:
                 return self.model.variables[var_name]
             else:
@@ -129,7 +129,7 @@ class thermo_reaction(Reaction):
         forward_cons = "directionality_{}".format(self.forward_variable.name)
         reverse_cons = "directionality_{}".format(self.reverse_variable.name)
 
-        if self.model is not None:
+        if self.model:
             if self.id not in self.model.Exclude_reactions:
                 return (
                     self.model.constraints[forward_cons],
@@ -154,7 +154,7 @@ class thermo_reaction(Reaction):
         forward_cons = "ind_{}".format(self.forward_variable.name)
         reverse_cons = "ind_{}".format(self.reverse_variable.name)
 
-        if self.model is not None:
+        if self.model:
             if self.id not in self.model.Exclude_reactions:
                 return (
                     self.model.constraints[forward_cons],
@@ -181,7 +181,7 @@ class thermo_reaction(Reaction):
         forward_cons = "delG_{}".format(self.forward_variable.name)
         reverse_cons = "delG_{}".format(self.reverse_variable.name)
 
-        if self.model is not None:
+        if self.model:
             if self.id not in self.model.Exclude_reactions:
                 return (
                     self.model.constraints[forward_cons],
@@ -223,7 +223,8 @@ class thermo_reaction(Reaction):
         try:
             return self._delG_transport
         except AttributeError:
-            self._delG_transport = self.calculate_delG_transport()
+            electro_delG, proton_delG = self.calculate_delG_transport()
+            self._delG_transport = electro_delG + proton_delG
             return self._delG_transport
 
     @delG_transport.setter
@@ -261,6 +262,60 @@ class thermo_reaction(Reaction):
             {key: sum(val) for key, val in n_proton.items()},
         )
 
+    def update_variable_bounds(self):
+        """Updating the method from cobra to update the flux bounds in cplex_interface. Currently not doing it for gurobi_interface as I don't have a licence to test this"""
+        if self.model is None:
+            return
+        super().update_variable_bounds()
+        if self._lower_bound > 0:
+            if self.model.cplex_interface:
+                self.model.cplex_interface.variables.set_lower_bounds(
+                    self.forward_variable.name,
+                    None if isinf(self._lower_bound) else self._lower_bound,
+                )
+                self.model.cplex_interface.variables.set_upper_bounds(
+                    self.forward_variable.name,
+                    None if isinf(self._upper_bound) else self._upper_bound,
+                )
+
+                self.model.cplex_interface.variables.set_lower_bounds(
+                    self.reverse_variable.name, 0
+                )
+                self.model.cplex_interface.variables.set_upper_bounds(
+                    self.reverse_variable.name, 0
+                )
+            elif self._upper_bound < 0:
+                self.model.cplex_interface.variables.set_lower_bounds(
+                    self.forward_variable.name, 0
+                )
+                self.model.cplex_interface.variables.set_upper_bounds(
+                    self.forward_variable.name, 0
+                )
+
+                self.model.cplex_interface.variables.set_lower_bounds(
+                    self.reverse_variable.name,
+                    None if isinf(self._upper_bound) else -self._upper_bound,
+                )
+                self.model.cplex_interface.variables.set_upper_bounds(
+                    self.reverse_variable.name,
+                    None if isinf(self._lower_bound) else -self._lower_bound,
+                )
+            else:
+                self.model.cplex_interface.variables.set_lower_bounds(
+                    self.forward_variable.name, 0
+                )
+                self.model.cplex_interface.variables.set_upper_bounds(
+                    self.forward_variable.name,
+                    None if isinf(self._upper_bound) else self._upper_bound,
+                )
+                self.model.cplex_interface.variables.set_lower_bounds(
+                    self.reverse_variable.name, 0
+                )
+                self.model.cplex_interface.variables.set_upper_bounds(
+                    self.reverse_variable.name,
+                    None if isinf(self._lower_bound) else -self._lower_bound,
+                )
+
     def calculate_delG_transport(self):
         """Gibbs energy of transport has two components, 1) proton transport across the membrane, This needs to be adjusted for compartment specific pH 2) charge transport, which is affected by membrane potential.
 
@@ -270,7 +325,7 @@ class thermo_reaction(Reaction):
             Gibbs energy of transport
         """
         if len(self.compartments) != 2:
-            return 0
+            return 0, 0
         else:
             charge_dict, proton_dict = self.calculate_transport_charge()
             comps = list(charge_dict.keys())
@@ -291,7 +346,7 @@ class thermo_reaction(Reaction):
                 )
             )
 
-            return electro_static_delG + proton_potential_adjustment
+            return electro_static_delG, proton_potential_adjustment
 
     def cal_stoichiometric_matrix(self):
         """stoichiometric vector of forward reaction. Vector has length of number of metabolites in the model.
